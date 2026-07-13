@@ -14,5 +14,5 @@ class ApiConfig {
     return 'http://192.168.18.15:3000/api';
   }
 
-  static const Duration timeout = Duration(seconds: 30);
+  static const Duration timeout = Duration(seconds: 60);
 }

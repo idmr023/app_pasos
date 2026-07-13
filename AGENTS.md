@@ -23,7 +23,10 @@ flutter run --dart-define=BACKEND_URL=http://192.168.18.15:3000/api
 # Flutter (Android - emulador)
 flutter run --dart-define=BACKEND_URL=http://10.0.2.2:3000/api
 
-# Build APK para compartir
+# Build APK para compartir (con Render)
+flutter build apk --dart-define=BACKEND_URL=https://app-pasos.onrender.com/api
+
+# Build APK con ngrok
 flutter build apk --dart-define=BACKEND_URL=https://url-publica.ngrok.io/api
 ```
 
