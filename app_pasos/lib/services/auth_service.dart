@@ -73,6 +73,36 @@ class AuthService {
     return {'token': data['token'], 'user': user};
   }
 
+  Future<User> updateProfile(String token, {String? displayName, String? avatar}) async {
+    final body = <String, dynamic>{};
+    if (displayName != null) body['displayName'] = displayName;
+    if (avatar != null) body['avatar'] = avatar;
+
+    final response = await http.put(
+      Uri.parse('${ApiConfig.baseUrl}/auth/profile'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode(body),
+    ).timeout(ApiConfig.timeout);
+
+    final data = jsonDecode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Error al actualizar perfil');
+    }
+
+    final user = User.fromJson(data['user']);
+    await _storage.write(key: _userKey, value: jsonEncode({
+      'id': user.id,
+      'username': user.username,
+      'displayName': user.displayName,
+      'role': user.role,
+      'avatar': user.avatar,
+    }));
+    return user;
+  }
+
   Future<User> getProfile(String token) async {
     final response = await http.get(
       Uri.parse('${ApiConfig.baseUrl}/auth/profile'),

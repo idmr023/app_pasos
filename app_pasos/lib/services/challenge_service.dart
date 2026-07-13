@@ -8,13 +8,14 @@ class ChallengeService {
 
   ChallengeService(this.token);
 
-  Future<Challenge> createChallenge() async {
+  Future<Challenge> createChallenge({int duration = 30}) async {
     final response = await http.post(
       Uri.parse('${ApiConfig.baseUrl}/challenges'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
+      body: jsonEncode({'duration': duration}),
     ).timeout(ApiConfig.timeout);
 
     final data = jsonDecode(response.body);
@@ -44,8 +45,18 @@ class ChallengeService {
   }
 
   Future<List<Challenge>> getChallenges() async {
+    return getChallengesByStatus(null);
+  }
+
+  Future<List<Challenge>> getChallengesByStatus(String? status) async {
+    final queryParams = <String, String>{};
+    if (status != null) queryParams['status'] = status;
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/challenges')
+        .replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
+
     final response = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/challenges'),
+      uri,
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 import '../config/theme.dart';
 import '../providers/auth_provider.dart';
 import '../providers/challenge_provider.dart';
@@ -113,6 +115,26 @@ class _ChallengeRoomScreenState extends State<ChallengeRoomScreen> {
     );
   }
 
+  void _shareResult(ChallengeProvider challengeProv) {
+    final detail = challengeProv.challengeDetail;
+    final challenge = detail?['challenge'];
+    final creator = challenge?['creator'];
+    final opponent = challenge?['opponent'];
+    final code = challenge?['code'] ?? '';
+
+    final now = DateFormat('dd/MM/yyyy').format(DateTime.now());
+    final creatorName = creator?['displayName'] ?? '?';
+    final opponentName = opponent?['displayName'] ?? '?';
+
+    final text = '🏆 App Pasos\n\n'
+        'Reto: $code\n'
+        '$creatorName vs $opponentName\n'
+        'Fecha: $now\n\n'
+        'Descarga la app y únete al reto!';
+
+    Share.share(text);
+  }
+
   Future<bool> _confirmAction(String title, String message) async {
     return await showDialog<bool>(
       context: context,
@@ -149,6 +171,11 @@ class _ChallengeRoomScreenState extends State<ChallengeRoomScreen> {
         ),
         Row(
           children: [
+            IconButton(
+              icon: const Icon(Icons.share, size: 20, color: AppTheme.darkGrey),
+              tooltip: 'Compartir resultado',
+              onPressed: () => _shareResult(challengeProv),
+            ),
             TextButton.icon(
               onPressed: () => Navigator.pushNamed(context, '/analytics', arguments: _challengeId),
               icon: const Icon(Icons.bar_chart, size: 18, color: AppTheme.secondary),
@@ -195,11 +222,19 @@ class _ChallengeRoomScreenState extends State<ChallengeRoomScreen> {
   }
 
   Widget _buildHeader(challenge, creator, opponent) {
+    final duration = challenge?['duration'] ?? 30;
+    final endDate = challenge?['endDate'] != null ? DateTime.parse(challenge!['endDate']) : null;
+    final remaining = endDate != null ? endDate.difference(DateTime.now()).inDays : 0;
+    final status = challenge?['status'] ?? '';
+
     return GlassCard(
       width: double.infinity,
       child: Column(
         children: [
           Text(challenge?['code'] ?? '', style: AppTheme.labelLarge.copyWith(letterSpacing: 6)),
+          const SizedBox(height: 8),
+          Text('$duration días • ${status == 'finished' ? 'FINALIZADO' : remaining > 0 ? '$remaining días restantes' : 'Último día'}',
+              style: TextStyle(color: status == 'finished' ? AppTheme.gold : AppTheme.darkGrey, fontSize: 11, fontWeight: FontWeight.w600)),
           const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,

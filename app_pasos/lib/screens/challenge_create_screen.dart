@@ -14,6 +14,8 @@ class ChallengeCreateScreen extends StatefulWidget {
 }
 
 class _ChallengeCreateScreenState extends State<ChallengeCreateScreen> {
+  int _selectedDuration = 30;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -105,7 +107,7 @@ class _ChallengeCreateScreenState extends State<ChallengeCreateScreen> {
 
   Widget _buildCreateForm(ChallengeProvider challengeProvider) {
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -122,11 +124,64 @@ class _ChallengeCreateScreenState extends State<ChallengeCreateScreen> {
             Text('Crear un nuevo reto', style: AppTheme.headlineLarge),
             const SizedBox(height: 8),
             Text('Recibirás un código para compartir con tu amigo', style: AppTheme.bodyMedium, textAlign: TextAlign.center),
+            const SizedBox(height: 32),
+            Text('DURACIÓN DEL RETO', style: AppTheme.labelLarge),
+            const SizedBox(height: 12),
+            Row(
+              children: [7, 14, 30].map((days) {
+                final isSelected = _selectedDuration == days;
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selectedDuration = days),
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      decoration: BoxDecoration(
+                        color: isSelected ? AppTheme.primary.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.04),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isSelected ? AppTheme.primary : Colors.white.withValues(alpha: 0.08),
+                          width: isSelected ? 2 : 1,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            '$days',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w800,
+                              color: isSelected ? AppTheme.primary : AppTheme.grey,
+                            ),
+                          ),
+                          Text(
+                            'días',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isSelected ? AppTheme.primary : AppTheme.darkGrey,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
             const SizedBox(height: 40),
             NeonButton(
               label: 'CREAR RETO',
               icon: Icons.emoji_events,
-              onPressed: () => challengeProvider.createChallenge(),
+              onPressed: () async {
+                final success = await challengeProvider.createChallenge(duration: _selectedDuration);
+                if (!mounted) return;
+                if (!success) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(challengeProvider.error ?? 'Error'), backgroundColor: AppTheme.error),
+                  );
+                }
+              },
             ),
           ],
         ),

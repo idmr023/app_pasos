@@ -41,6 +41,9 @@ dependencies:
   intl: ^0.20.2
   google_fonts: ^6.2.1
   fl_chart: ^0.70.2
+  flutter_local_notifications: ^18.0.1
+  timezone: ^0.10.0
+  share_plus: ^10.1.4
 
 dev_dependencies:
   flutter_test:

@@ -56,6 +56,34 @@ class StepService {
         .toList();
   }
 
+  Future<int> getTodaySteps() async {
+    final today = DateTime.now();
+    final dateStr = today.toIso8601String().split('T')[0];
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/steps')
+        .replace(queryParameters: {'date': dateStr});
+
+    final response = await http.get(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    ).timeout(ApiConfig.timeout);
+
+    final data = jsonDecode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Error al obtener pasos');
+    }
+
+    final entries = data['entries'] as List;
+    int total = 0;
+    for (final e in entries) {
+      total += e['steps'] as int;
+    }
+    return total;
+  }
+
   Future<List<CalendarDay>> getCalendar(String challengeId, {int? year, int? month}) async {
     final now = DateTime.now();
     final queryParams = {

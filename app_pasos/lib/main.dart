@@ -13,9 +13,12 @@ import 'screens/challenge_create_screen.dart';
 import 'screens/challenge_join_screen.dart';
 import 'screens/challenge_room_screen.dart';
 import 'screens/analytics_screen.dart';
+import 'screens/profile_screen.dart';
+import 'services/notification_service.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await NotificationService.init();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
   ]);
@@ -52,6 +55,7 @@ class AppPasosApp extends StatelessWidget {
           '/challenge-join': (context) => const ChallengeJoinScreen(),
           '/challenge-room': (context) => const ChallengeRoomScreen(),
           '/analytics': (context) => const AnalyticsScreen(),
+          '/profile': (context) => const ProfileScreen(),
         },
       ),
     );

@@ -4,6 +4,17 @@ const Challenge = require('../models/Challenge');
 const StepEntry = require('../models/StepEntry');
 const User = require('../models/User');
 
+async function getWinner(challengeId) {
+  const entries = await StepEntry.find({ challenge: challengeId });
+  const totals = {};
+  for (const e of entries) {
+    totals[e.user.toString()] = (totals[e.user.toString()] || 0) + e.steps;
+  }
+  if (Object.keys(totals).length === 0) return null;
+  const winnerId = Object.entries(totals).sort((a, b) => b[1] - a[1])[0][0];
+  return winnerId;
+}
+
 const router = express.Router();
 
 function generateCode() {
@@ -17,6 +28,11 @@ function generateCode() {
 
 router.post('/', auth, async (req, res) => {
   try {
+    const duration = req.body.duration || 30;
+    if (![7, 14, 30].includes(duration)) {
+      return res.status(400).json({ error: 'La duración debe ser 7, 14 o 30 días' });
+    }
+
     let code;
     let exists = true;
 
@@ -25,17 +41,26 @@ router.post('/', auth, async (req, res) => {
       exists = await Challenge.findOne({ code });
     }
 
+    const startDate = new Date();
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + duration);
+
     const challenge = new Challenge({
       code,
-      creator: req.userId
+      creator: req.userId,
+      duration,
+      startDate,
+      endDate
     });
     await challenge.save();
 
     res.status(201).json({
       id: challenge._id,
       code: challenge.code,
+      duration: challenge.duration,
       status: challenge.status,
-      startDate: challenge.startDate
+      startDate: challenge.startDate,
+      endDate: challenge.endDate
     });
   } catch (error) {
     res.status(500).json({ error: 'Error al crear reto' });
@@ -84,17 +109,33 @@ router.post('/join', auth, async (req, res) => {
 
 router.get('/', auth, async (req, res) => {
   try {
-    const challenges = await Challenge.find({
+    const { status } = req.query;
+    const filter = {
       $or: [
         { creator: req.userId },
         { opponent: req.userId }
       ]
-    })
+    };
+    if (status) {
+      filter.status = status;
+    }
+
+    const challenges = await Challenge.find(filter)
     .populate('creator', 'username displayName avatar')
     .populate('opponent', 'username displayName avatar')
     .sort({ createdAt: -1 });
 
-    res.json({ challenges });
+    const enriched = [];
+    for (const challenge of challenges) {
+      const item = challenge.toObject();
+      if (challenge.status === 'finished') {
+        const winnerId = await getWinner(challenge._id);
+        item.winner = winnerId ? winnerId.toString() : null;
+      }
+      enriched.push(item);
+    }
+
+    res.json({ challenges: enriched });
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener retos' });
   }
@@ -117,6 +158,11 @@ router.get('/:id', auth, async (req, res) => {
       return res.status(403).json({ error: 'No eres participante de este reto' });
     }
 
+    if (challenge.status === 'active' && challenge.endDate && new Date() > challenge.endDate) {
+      challenge.status = 'finished';
+      await challenge.save();
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -133,11 +179,12 @@ router.get('/:id', auth, async (req, res) => {
       date: { $gte: startOfMonth, $lte: endOfMonth }
     }).populate('user', 'username displayName avatar');
 
-    res.json({
-      challenge,
-      entries,
-      monthEntries
-    });
+    const result = { challenge: challenge.toObject(), entries, monthEntries };
+    if (challenge.status === 'finished') {
+      result.winner = await getWinner(challenge._id);
+    }
+
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener reto' });
   }

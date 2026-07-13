@@ -6,6 +6,7 @@ class ChallengeProvider extends ChangeNotifier {
   ChallengeService? _service;
 
   List<Challenge> _challenges = [];
+  List<Challenge> _finishedChallenges = [];
   Challenge? _currentChallenge;
   Map<String, dynamic>? _challengeDetail;
   List<Map<String, dynamic>> _analytics = [];
@@ -14,6 +15,7 @@ class ChallengeProvider extends ChangeNotifier {
   String? _error;
 
   List<Challenge> get challenges => _challenges;
+  List<Challenge> get finishedChallenges => _finishedChallenges;
   Challenge? get currentChallenge => _currentChallenge;
   Map<String, dynamic>? get challengeDetail => _challengeDetail;
   List<Map<String, dynamic>> get analytics => _analytics;
@@ -25,13 +27,13 @@ class ChallengeProvider extends ChangeNotifier {
     _service = ChallengeService(token);
   }
 
-  Future<bool> createChallenge() async {
+  Future<bool> createChallenge({int duration = 30}) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      final challenge = await _service!.createChallenge();
+      final challenge = await _service!.createChallenge(duration: duration);
       _currentChallenge = challenge;
       _challenges.insert(0, challenge);
       _isLoading = false;
@@ -76,6 +78,15 @@ class ChallengeProvider extends ChangeNotifier {
     } catch (e) {
       _error = e.toString().replaceFirst('Exception: ', '');
       _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadFinishedChallenges() async {
+    try {
+      _finishedChallenges = await _service!.getChallengesByStatus('finished');
+      notifyListeners();
+    } catch (e) {
       notifyListeners();
     }
   }

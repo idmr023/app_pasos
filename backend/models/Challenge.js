@@ -17,6 +17,12 @@ const challengeSchema = new mongoose.Schema({
     ref: 'User',
     default: null
   },
+  duration: {
+    type: Number,
+    default: 30,
+    min: 1,
+    max: 365
+  },
   status: {
     type: String,
     enum: ['waiting', 'active', 'finished'],

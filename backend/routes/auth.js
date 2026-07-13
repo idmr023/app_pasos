@@ -91,4 +91,39 @@ router.get('/profile', auth, async (req, res) => {
   });
 });
 
+router.put('/profile', auth, async (req, res) => {
+  try {
+    const { displayName, avatar } = req.body;
+
+    if (displayName !== undefined) {
+      if (displayName.trim().length < 2 || displayName.trim().length > 30) {
+        return res.status(400).json({ error: 'El nombre debe tener entre 2 y 30 caracteres' });
+      }
+      req.user.displayName = displayName.trim();
+    }
+
+    const validAvatars = ['runner', 'crown', 'fire', 'star'];
+    if (avatar !== undefined) {
+      if (!validAvatars.includes(avatar)) {
+        return res.status(400).json({ error: 'Avatar inválido' });
+      }
+      req.user.avatar = avatar;
+    }
+
+    await req.user.save();
+
+    res.json({
+      user: {
+        id: req.user._id,
+        username: req.user.username,
+        displayName: req.user.displayName,
+        role: req.user.role,
+        avatar: req.user.avatar
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al actualizar perfil' });
+  }
+});
+
 module.exports = router;

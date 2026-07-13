@@ -3,10 +3,11 @@ import 'package:provider/provider.dart';
 import '../config/theme.dart';
 import '../providers/auth_provider.dart';
 import '../providers/challenge_provider.dart';
+import '../providers/step_provider.dart';
 import '../widgets/glass_card.dart';
-import '../widgets/step_ring.dart';
 import '../widgets/player_avatar.dart';
 import '../widgets/neon_button.dart';
+import '../widgets/animated_counter.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,19 +16,31 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   void _loadData() {
     final auth = context.read<AuthProvider>();
-    if (auth.token != null) {
-      context.read<ChallengeProvider>().setToken(auth.token!);
-      context.read<ChallengeProvider>().loadChallenges();
-    }
+    if (auth.token == null) return;
+
+    final token = auth.token!;
+    context.read<ChallengeProvider>().setToken(token);
+    context.read<ChallengeProvider>().loadChallenges();
+    context.read<StepProvider>().setToken(token);
+    context.read<StepProvider>().loadTodaySteps();
   }
 
   Future<void> _logout() async {
@@ -40,7 +53,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final challengeProvider = context.watch<ChallengeProvider>();
+    final stepProv = context.watch<StepProvider>();
     final user = auth.user;
+    final hasChallenges = challengeProvider.challenges.isNotEmpty;
 
     return Scaffold(
       body: Container(
@@ -58,24 +73,19 @@ class _HomeScreenState extends State<HomeScreen> {
         child: SafeArea(
           child: RefreshIndicator(
             onRefresh: () async => _loadData(),
-            child: SingleChildScrollView(
+            child: CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeader(user),
-                  const SizedBox(height: 16),
-                  _buildDailyRing(),
-                  const SizedBox(height: 16),
-                  _buildChallengesSection(challengeProvider),
-                ],
-              ),
+              slivers: [
+                SliverToBoxAdapter(child: _buildHeader(user)),
+                SliverToBoxAdapter(child: _buildTodaySteps(stepProv.todaySteps)),
+                SliverToBoxAdapter(child: _buildTabs()),
+                SliverToBoxAdapter(child: _buildChallengesSection(challengeProvider, hasChallenges)),
+              ],
             ),
           ),
         ),
       ),
-      floatingActionButton: challengeProvider.challenges.isNotEmpty
+      floatingActionButton: hasChallenges
           ? FloatingActionButton(
               onPressed: () => Navigator.pushNamed(context, '/challenge-create'),
               backgroundColor: AppTheme.primary,
@@ -86,98 +96,135 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHeader(user) {
-    return GlassCard(
-      padding: const EdgeInsets.all(16),
-      width: double.infinity,
-      child: Row(
-        children: [
-          PlayerAvatar(
-            radius: 28,
-            avatarType: user?.avatar ?? 'runner',
-            displayName: null,
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  user?.displayName ?? 'Usuario',
-                  style: AppTheme.titleLarge,
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    const Icon(Icons.local_fire_department, size: 14, color: AppTheme.primary),
-                    const SizedBox(width: 4),
-                    Text('3 días seguidos', style: AppTheme.bodySmall),
-                  ],
-                ),
-              ],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: GlassCard(
+        padding: const EdgeInsets.all(16),
+        width: double.infinity,
+        child: Row(
+          children: [
+            GestureDetector(
+              onTap: () => Navigator.pushNamed(context, '/profile'),
+              child: PlayerAvatar(
+                radius: 28,
+                avatarType: user?.avatar ?? 'runner',
+                displayName: null,
+              ),
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout, color: AppTheme.darkGrey),
-            onPressed: _logout,
-          ),
-        ],
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    user?.displayName ?? 'Usuario',
+                    style: AppTheme.titleLarge,
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.logout, color: AppTheme.darkGrey),
+              onPressed: _logout,
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildDailyRing() {
-    return GlassCard(
-      width: double.infinity,
+  Widget _buildTodaySteps(int steps) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: GlassCard(
+        width: double.infinity,
+        child: Column(
+          children: [
+            Text('PASOS DE HOY', style: AppTheme.labelLarge),
+            const SizedBox(height: 16),
+            AnimatedCounter(
+              value: steps,
+              style: AppTheme.counterLarge,
+            ),
+            const SizedBox(height: 8),
+            Text('tus pasos registrados hoy', style: AppTheme.bodySmall),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabs() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: GlassCard(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: TabBar(
+          controller: _tabController,
+          indicator: BoxDecoration(
+            color: AppTheme.primary.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          indicatorSize: TabBarIndicatorSize.tab,
+          labelColor: AppTheme.primary,
+          unselectedLabelColor: AppTheme.darkGrey,
+          labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+          unselectedLabelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          dividerColor: Colors.transparent,
+          tabs: const [
+            Tab(text: 'ACTIVOS'),
+            Tab(text: 'FINALIZADOS'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChallengesSection(ChallengeProvider challengeProv, bool hasChallenges) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          Text('HOY', style: AppTheme.labelLarge),
-          const SizedBox(height: 16),
-          StepRing(
-            size: 160,
-            progress: 0.45,
-            color: AppTheme.primary,
-            center: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '4,523',
-                  style: AppTheme.counterLarge,
-                ),
-                Text(
-                  'de 10,000',
-                  style: AppTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Meta diaria: 10,000 pasos',
-            style: AppTheme.bodySmall,
-          ),
+          if (challengeProv.isLoading)
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: CircularProgressIndicator(color: AppTheme.primary),
+            )
+          else if (!hasChallenges)
+            _buildEmptyState()
+          else
+            _buildChallengeList(),
         ],
       ),
     );
   }
 
-  Widget _buildChallengesSection(ChallengeProvider challengeProvider) {
+  Widget _buildChallengeList() {
+    final challengeProv = context.watch<ChallengeProvider>();
+    final challenges = _tabController.index == 0
+        ? challengeProv.challenges
+        : challengeProv.finishedChallenges;
+
+    if (challenges.isEmpty && _tabController.index == 1) {
+      return GlassCard(
+        width: double.infinity,
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            children: [
+              const Icon(Icons.check_circle_outline, size: 48, color: AppTheme.darkGrey),
+              const SizedBox(height: 16),
+              Text('No hay retos finalizados', style: AppTheme.bodyMedium),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (challenges.isEmpty) return const SizedBox.shrink();
+
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('TUS RETOS', style: AppTheme.labelLarge),
-        const SizedBox(height: 12),
-        if (challengeProvider.isLoading)
-          const Center(
-            child: Padding(
-              padding: EdgeInsets.all(32),
-              child: CircularProgressIndicator(color: AppTheme.primary),
-            ),
-          )
-        else if (challengeProvider.challenges.isEmpty)
-          _buildEmptyState()
-        else
-          ...challengeProvider.challenges.map((c) => _buildChallengeCard(c)),
-      ],
+      children: challenges.map((c) => _buildChallengeCard(c)).toList(),
     );
   }
 
@@ -225,6 +272,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final currentUser = context.read<AuthProvider>().user;
     final isCreator = challenge.creator?.id == currentUser?.id;
     final otherUser = isCreator ? challenge.opponent : challenge.creator;
+    final isFinished = challenge.status == 'finished';
+    final userWon = challenge.winner == currentUser?.id;
 
     return GlassCard(
       margin: const EdgeInsets.only(bottom: 12),
@@ -234,14 +283,16 @@ class _HomeScreenState extends State<HomeScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: challenge.status == 'active'
-                  ? AppTheme.secondary.withValues(alpha: 0.1)
-                  : Colors.white.withValues(alpha: 0.04),
+              color: isFinished
+                  ? AppTheme.gold.withValues(alpha: 0.1)
+                  : challenge.status == 'active'
+                      ? AppTheme.secondary.withValues(alpha: 0.1)
+                      : Colors.white.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
-              Icons.emoji_events,
-              color: challenge.status == 'active' ? AppTheme.secondary : AppTheme.darkGrey,
+              isFinished ? Icons.emoji_events : Icons.emoji_events,
+              color: isFinished ? AppTheme.gold : challenge.status == 'active' ? AppTheme.secondary : AppTheme.darkGrey,
               size: 28,
             ),
           ),
@@ -250,41 +301,72 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Reto: ${challenge.code}',
-                  style: AppTheme.titleMedium,
+                Row(
+                  children: [
+                    Text(
+                      '${challenge.code}',
+                      style: AppTheme.titleMedium,
+                    ),
+                    if (challenge.duration > 0) ...[
+                      const SizedBox(width: 8),
+                      Text('${challenge.duration}d', style: TextStyle(color: AppTheme.darkGrey, fontSize: 11)),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  otherUser != null ? 'vs ${otherUser.displayName}' : 'Esperando oponente...',
+                  isFinished
+                      ? (otherUser != null ? 'vs ${otherUser.displayName}' : 'vs ?')
+                      : (otherUser != null ? 'vs ${otherUser.displayName}' : 'Esperando oponente...'),
                   style: AppTheme.bodyMedium,
                 ),
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: challenge.status == 'active'
-                  ? AppTheme.secondary.withValues(alpha: 0.15)
-                  : Colors.white.withValues(alpha: 0.04),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
+          if (isFinished)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: userWon ? AppTheme.gold.withValues(alpha: 0.15) : AppTheme.darkGrey.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: userWon ? AppTheme.gold.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.06),
+                ),
+              ),
+              child: Text(
+                userWon ? 'GANASTE' : 'PERDISTE',
+                style: TextStyle(
+                  color: userWon ? AppTheme.gold : AppTheme.darkGrey,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1,
+                ),
+              ),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
                 color: challenge.status == 'active'
-                    ? AppTheme.secondary.withValues(alpha: 0.3)
-                    : Colors.white.withValues(alpha: 0.06),
+                    ? AppTheme.secondary.withValues(alpha: 0.15)
+                    : Colors.white.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: challenge.status == 'active'
+                      ? AppTheme.secondary.withValues(alpha: 0.3)
+                      : Colors.white.withValues(alpha: 0.06),
+                ),
+              ),
+              child: Text(
+                challenge.status == 'active' ? 'ACTIVO' : 'ESPERANDO',
+                style: TextStyle(
+                  color: challenge.status == 'active' ? AppTheme.secondary : AppTheme.darkGrey,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1,
+                ),
               ),
             ),
-            child: Text(
-              challenge.status == 'active' ? 'ACTIVO' : 'ESPERANDO',
-              style: TextStyle(
-                color: challenge.status == 'active' ? AppTheme.secondary : AppTheme.darkGrey,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1,
-              ),
-            ),
-          ),
         ],
       ),
     );

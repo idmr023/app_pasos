@@ -46,6 +46,17 @@ class StepProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> loadTodaySteps() async {
+    if (_service == null) return;
+    try {
+      _todaySteps = await _service!.getTodaySteps();
+      notifyListeners();
+    } catch (e) {
+      _todaySteps = 0;
+      notifyListeners();
+    }
+  }
+
   Future<void> loadCalendar(String challengeId, {int? year, int? month}) async {
     try {
       _calendar = await _service!.getCalendar(challengeId, year: year, month: month);
