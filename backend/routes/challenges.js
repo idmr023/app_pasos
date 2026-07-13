@@ -143,4 +143,54 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
+router.post('/:id/leave', auth, async (req, res) => {
+  try {
+    const challenge = await Challenge.findById(req.params.id);
+    if (!challenge) {
+      return res.status(404).json({ error: 'Reto no encontrado' });
+    }
+
+    const isCreator = challenge.creator.toString() === req.userId.toString();
+    const isOpponent = challenge.opponent && challenge.opponent.toString() === req.userId.toString();
+
+    if (!isCreator && !isOpponent) {
+      return res.status(403).json({ error: 'No eres participante de este reto' });
+    }
+
+    if (isCreator) {
+      await StepEntry.deleteMany({ challenge: challenge._id });
+      await Challenge.findByIdAndDelete(challenge._id);
+      return res.json({ message: 'Reto eliminado' });
+    }
+
+    challenge.opponent = null;
+    challenge.status = 'waiting';
+    await challenge.save();
+
+    res.json({ message: 'Has salido del reto' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al salir del reto' });
+  }
+});
+
+router.delete('/:id', auth, async (req, res) => {
+  try {
+    const challenge = await Challenge.findById(req.params.id);
+    if (!challenge) {
+      return res.status(404).json({ error: 'Reto no encontrado' });
+    }
+
+    if (challenge.creator.toString() !== req.userId.toString()) {
+      return res.status(403).json({ error: 'Solo el creador puede eliminar el reto' });
+    }
+
+    await StepEntry.deleteMany({ challenge: challenge._id });
+    await Challenge.findByIdAndDelete(challenge._id);
+
+    res.json({ message: 'Reto eliminado' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al eliminar reto' });
+  }
+});
+
 module.exports = router;

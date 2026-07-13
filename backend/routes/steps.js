@@ -114,4 +114,35 @@ router.get('/calendar', auth, async (req, res) => {
   }
 });
 
+router.get('/:challengeId/analytics', auth, async (req, res) => {
+  try {
+    const { challengeId } = req.params;
+    const { start, end } = req.query;
+
+    const challenge = await Challenge.findById(challengeId);
+    if (!challenge) {
+      return res.status(404).json({ error: 'Reto no encontrado' });
+    }
+
+    const isParticipant = challenge.creator.toString() === req.userId.toString() ||
+      (challenge.opponent && challenge.opponent.toString() === req.userId.toString());
+
+    if (!isParticipant) {
+      return res.status(403).json({ error: 'No eres participante de este reto' });
+    }
+
+    const startDate = start ? new Date(start) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const endDate = end ? new Date(end) : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
+
+    const entries = await StepEntry.find({
+      challenge: challengeId,
+      date: { $gte: startDate, $lte: endDate }
+    }).populate('user', 'username displayName avatar').sort({ date: 1 });
+
+    res.json({ entries });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener analytics' });
+  }
+});
+
 module.exports = router;

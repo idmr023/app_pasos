@@ -78,4 +78,58 @@ class ChallengeService {
 
     return data;
   }
+
+  Future<void> leaveChallenge(String id) async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/challenges/$id/leave'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    ).timeout(ApiConfig.timeout);
+
+    final data = jsonDecode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Error al salir del reto');
+    }
+  }
+
+  Future<void> deleteChallenge(String id) async {
+    final response = await http.delete(
+      Uri.parse('${ApiConfig.baseUrl}/challenges/$id'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    ).timeout(ApiConfig.timeout);
+
+    final data = jsonDecode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Error al eliminar reto');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getAnalytics(String challengeId, {String? start, String? end}) async {
+    final queryParams = <String, String>{};
+    if (start != null) queryParams['start'] = start;
+    if (end != null) queryParams['end'] = end;
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/steps/$challengeId/analytics')
+        .replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
+
+    final response = await http.get(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    ).timeout(ApiConfig.timeout);
+
+    final data = jsonDecode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Error al obtener estadísticas');
+    }
+
+    return List<Map<String, dynamic>>.from(data['entries']);
+  }
 }

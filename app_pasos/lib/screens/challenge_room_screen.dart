@@ -10,6 +10,7 @@ import '../widgets/player_avatar.dart';
 import '../widgets/animated_counter.dart';
 import '../widgets/step_input_dialog.dart';
 
+
 class ChallengeRoomScreen extends StatefulWidget {
   const ChallengeRoomScreen({super.key});
 
@@ -94,6 +95,8 @@ class _ChallengeRoomScreenState extends State<ChallengeRoomScreen> {
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
+                      _buildTopBar(challengeProv, challenge, creator, opponent),
+                      const SizedBox(height: 16),
                       _buildHeader(challenge, creator, opponent),
                       const SizedBox(height: 16),
                       _buildScoreboard(stepProv, creator, opponent),
@@ -107,6 +110,87 @@ class _ChallengeRoomScreenState extends State<ChallengeRoomScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Future<bool> _confirmAction(String title, String message) async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF00101A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Text(message, style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(title.contains('Eliminar') ? 'Eliminar' : 'Salir', style: const TextStyle(color: Color(0xFFFF4D00))),
+          ),
+        ],
+      ),
+    ) ?? false;
+  }
+
+  Widget _buildTopBar(ChallengeProvider challengeProv, challenge, creator, opponent) {
+    final auth = context.read<AuthProvider>();
+    final currentUserId = auth.user?.id;
+    final isCreator = creator != null && (creator['id'] == currentUserId || creator['_id'] == currentUserId);
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white70),
+          onPressed: () => Navigator.pop(context),
+        ),
+        Row(
+          children: [
+            TextButton.icon(
+              onPressed: () => Navigator.pushNamed(context, '/analytics', arguments: _challengeId),
+              icon: const Icon(Icons.bar_chart, size: 18, color: AppTheme.secondary),
+              label: const Text('ESTADÍSTICAS', style: TextStyle(color: AppTheme.secondary, fontSize: 11, fontWeight: FontWeight.w700)),
+            ),
+            const SizedBox(width: 4),
+            IconButton(
+              icon: Icon(
+                isCreator ? Icons.delete_outline : Icons.logout,
+                color: isCreator ? const Color(0xFFFF4D00) : AppTheme.darkGrey,
+              ),
+              tooltip: isCreator ? 'Eliminar reto' : 'Salir del reto',
+              onPressed: () async {
+                final confirmed = await _confirmAction(
+                  isCreator ? 'Eliminar reto' : 'Salir del reto',
+                  isCreator
+                      ? '¿Estás seguro? Se eliminarán todos los datos del reto.'
+                      : '¿Estás seguro de que quieres salir del reto?',
+                );
+                if (!confirmed || !mounted) return;
+
+                final success = isCreator
+                    ? await challengeProv.deleteChallenge(_challengeId)
+                    : await challengeProv.leaveChallenge(_challengeId);
+
+                if (mounted) {
+                  if (success) {
+                    Navigator.pop(context);
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(challengeProv.error ?? 'Error'),
+                        backgroundColor: const Color(0xFFFF4D00),
+                      ),
+                    );
+                  }
+                }
+              },
+            ),
+          ],
+        ),
+      ],
     );
   }
 

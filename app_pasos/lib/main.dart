@@ -12,6 +12,7 @@ import 'screens/home_screen.dart';
 import 'screens/challenge_create_screen.dart';
 import 'screens/challenge_join_screen.dart';
 import 'screens/challenge_room_screen.dart';
+import 'screens/analytics_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -50,6 +51,7 @@ class AppPasosApp extends StatelessWidget {
           '/challenge-create': (context) => const ChallengeCreateScreen(),
           '/challenge-join': (context) => const ChallengeJoinScreen(),
           '/challenge-room': (context) => const ChallengeRoomScreen(),
+          '/analytics': (context) => const AnalyticsScreen(),
         },
       ),
     );
