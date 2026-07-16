@@ -2,6 +2,7 @@ const express = require('express');
 const auth = require('../middleware/auth');
 const StepEntry = require('../models/StepEntry');
 const Challenge = require('../models/Challenge');
+const User = require('../models/User');
 
 const router = express.Router();
 
@@ -42,6 +43,25 @@ router.post('/', auth, async (req, res) => {
       });
       await entry.save();
     }
+
+    const totalSteps = await StepEntry.aggregate([
+      { $match: { user: req.user._id } },
+      { $group: { _id: null, total: { $sum: '$steps' } } }
+    ]);
+    const totalXp = Math.floor((totalSteps[0]?.total || 0) / 10);
+    const newLevel = (() => {
+      let l = 0;
+      while (1000 * (l + 1) * (l + 2) / 2 <= totalXp) l++;
+      return l;
+    })();
+    req.user.xp = totalXp;
+    req.user.level = newLevel;
+    const bestReward = [10, 20, 30, 40, 50].filter(r => newLevel >= r).pop();
+    const rewards = { 10: { title: 'Caminante' }, 20: { title: 'Maratonista' }, 30: { title: 'Ultramaratonista' }, 40: { title: 'Leyenda' }, 50: { title: 'Titán' } };
+    if (bestReward && rewards[bestReward]?.title) {
+      req.user.title = rewards[bestReward].title;
+    }
+    await req.user.save();
 
     res.json(entry);
   } catch (error) {

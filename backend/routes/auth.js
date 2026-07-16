@@ -36,7 +36,10 @@ router.post('/register', async (req, res) => {
         username: user.username,
         displayName: user.displayName,
         role: user.role,
-        avatar: user.avatar
+        avatar: user.avatar,
+        xp: user.xp,
+        level: user.level,
+        title: user.title
       }
     });
   } catch (error) {
@@ -71,7 +74,10 @@ router.post('/login', async (req, res) => {
         username: user.username,
         displayName: user.displayName,
         role: user.role,
-        avatar: user.avatar
+        avatar: user.avatar,
+        xp: user.xp,
+        level: user.level,
+        title: user.title
       }
     });
   } catch (error) {
@@ -86,7 +92,10 @@ router.get('/profile', auth, async (req, res) => {
       username: req.user.username,
       displayName: req.user.displayName,
       role: req.user.role,
-      avatar: req.user.avatar
+      avatar: req.user.avatar,
+      xp: req.user.xp,
+      level: req.user.level,
+      title: req.user.title
     }
   });
 });
@@ -118,7 +127,10 @@ router.put('/profile', auth, async (req, res) => {
         username: req.user.username,
         displayName: req.user.displayName,
         role: req.user.role,
-        avatar: req.user.avatar
+        avatar: req.user.avatar,
+        xp: req.user.xp,
+        level: req.user.level,
+        title: req.user.title
       }
     });
   } catch (error) {

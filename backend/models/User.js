@@ -25,6 +25,18 @@ const userSchema = new mongoose.Schema({
   avatar: {
     type: String,
     default: 'runner'
+  },
+  xp: {
+    type: Number,
+    default: 0
+  },
+  level: {
+    type: Number,
+    default: 0
+  },
+  title: {
+    type: String,
+    default: ''
   }
 }, {
   timestamps: true

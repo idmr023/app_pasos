@@ -9,6 +9,8 @@ dns.setServers(['8.8.8.8', '1.1.1.1']);
 const authRoutes = require('./routes/auth');
 const challengeRoutes = require('./routes/challenges');
 const stepRoutes = require('./routes/steps');
+const xpRoutes = require('./routes/xp');
+const gymRoutes = require('./routes/gym');
 
 const app = express();
 
@@ -22,6 +24,8 @@ mongoose.connect(process.env.MONGODB_URI)
 app.use('/api/auth', authRoutes);
 app.use('/api/challenges', challengeRoutes);
 app.use('/api/steps', stepRoutes);
+app.use('/api/xp', xpRoutes);
+app.use('/api/gym', gymRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'App Pasos API funcionando' });
