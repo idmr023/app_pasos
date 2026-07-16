@@ -75,7 +75,7 @@ class _NeonButtonState extends State<NeonButton>
               disabledBackgroundColor: widget.color.withValues(alpha: 0.4),
               foregroundColor: Colors.white,
               disabledForegroundColor: Colors.white.withValues(alpha: 0.6),
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
@@ -100,10 +100,12 @@ class _NeonButtonState extends State<NeonButton>
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       if (widget.icon != null) ...[
-                        Icon(widget.icon, size: 20),
-                        const SizedBox(width: 8),
+                        Icon(widget.icon, size: 18),
+                        const SizedBox(width: 6),
                       ],
-                      Text(widget.label),
+                      Flexible(
+                        child: Text(widget.label, overflow: TextOverflow.ellipsis),
+                      ),
                     ],
                   ),
           ),

@@ -3,6 +3,14 @@ import 'package:http/http.dart' as http;
 import '../config/api.dart';
 import '../models/challenge.dart';
 
+Map<String, dynamic> _parseJson(http.Response response) {
+  try {
+    final data = jsonDecode(response.body);
+    if (data is Map<String, dynamic>) return data;
+  } catch (_) {}
+  throw Exception('El servidor no respondió correctamente. Verifica tu conexión.');
+}
+
 class ChallengeService {
   final String token;
 
@@ -18,7 +26,7 @@ class ChallengeService {
       body: jsonEncode({'duration': duration}),
     ).timeout(ApiConfig.timeout);
 
-    final data = jsonDecode(response.body);
+    final data = _parseJson(response);
     if (response.statusCode != 201) {
       throw Exception(data['error'] ?? 'Error al crear reto');
     }
@@ -36,7 +44,7 @@ class ChallengeService {
       body: jsonEncode({'code': code}),
     ).timeout(ApiConfig.timeout);
 
-    final data = jsonDecode(response.body);
+    final data = _parseJson(response);
     if (response.statusCode != 200) {
       throw Exception(data['error'] ?? 'Error al unirse al reto');
     }
@@ -63,7 +71,7 @@ class ChallengeService {
       },
     ).timeout(ApiConfig.timeout);
 
-    final data = jsonDecode(response.body);
+    final data = _parseJson(response);
     if (response.statusCode != 200) {
       throw Exception(data['error'] ?? 'Error al obtener retos');
     }
@@ -82,7 +90,7 @@ class ChallengeService {
       },
     ).timeout(ApiConfig.timeout);
 
-    final data = jsonDecode(response.body);
+    final data = _parseJson(response);
     if (response.statusCode != 200) {
       throw Exception(data['error'] ?? 'Error al obtener reto');
     }
@@ -99,7 +107,7 @@ class ChallengeService {
       },
     ).timeout(ApiConfig.timeout);
 
-    final data = jsonDecode(response.body);
+    final data = _parseJson(response);
     if (response.statusCode != 200) {
       throw Exception(data['error'] ?? 'Error al salir del reto');
     }
@@ -114,7 +122,7 @@ class ChallengeService {
       },
     ).timeout(ApiConfig.timeout);
 
-    final data = jsonDecode(response.body);
+    final data = _parseJson(response);
     if (response.statusCode != 200) {
       throw Exception(data['error'] ?? 'Error al eliminar reto');
     }
@@ -136,7 +144,7 @@ class ChallengeService {
       },
     ).timeout(ApiConfig.timeout);
 
-    final data = jsonDecode(response.body);
+    final data = _parseJson(response);
     if (response.statusCode != 200) {
       throw Exception(data['error'] ?? 'Error al obtener estadísticas');
     }

@@ -4,6 +4,7 @@ import '../config/theme.dart';
 import '../providers/auth_provider.dart';
 import '../providers/challenge_provider.dart';
 import '../providers/step_provider.dart';
+import '../providers/xp_provider.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/player_avatar.dart';
 import '../widgets/neon_button.dart';
@@ -23,7 +24,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
   }
 
   @override
@@ -32,7 +32,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     super.dispose();
   }
 
-  void _loadData() {
+  void _refreshData() {
     final auth = context.read<AuthProvider>();
     if (auth.token == null) return;
 
@@ -41,6 +41,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     context.read<ChallengeProvider>().loadChallenges();
     context.read<StepProvider>().setToken(token);
     context.read<StepProvider>().loadTodaySteps();
+    context.read<XpProvider>().setToken(token);
+    context.read<XpProvider>().loadXp();
   }
 
   Future<void> _logout() async {
@@ -72,7 +74,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ),
         child: SafeArea(
           child: RefreshIndicator(
-            onRefresh: () async => _loadData(),
+            onRefresh: () async => _refreshData(),
             child: CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [

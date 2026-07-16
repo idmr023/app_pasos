@@ -20,19 +20,26 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   final _periods = ['ESTA SEMANA', 'ESTE MES', 'MES PASADO'];
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _challengeId = ModalRoute.of(context)!.settings.arguments as String;
-    _loadData();
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        _challengeId = ModalRoute.of(context)?.settings.arguments as String? ?? '';
+      } catch (_) {
+        _challengeId = '';
+      }
+      _loadData();
+    });
   }
 
   void _loadData() {
+    if (_challengeId.isEmpty) return;
     final auth = context.read<AuthProvider>();
     if (auth.token == null) return;
 
     final challengeProv = context.read<ChallengeProvider>();
+    challengeProv.clearError();
     challengeProv.setToken(auth.token!);
-    challengeProv.loadChallengeDetail(_challengeId);
 
     final now = DateTime.now();
     String? start, end;
@@ -90,9 +97,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   Expanded(
                     child: challengeProv.isAnalyticsLoading
                         ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
-                        : challengeProv.analytics.isEmpty
-                            ? _buildEmptyState()
-                            : _buildChart(challengeProv, userLabel, opponentLabel),
+                        : challengeProv.error != null
+                            ? _buildErrorState(challengeProv)
+                            : challengeProv.analytics.isEmpty
+                                ? _buildEmptyState()
+                                : _buildChart(challengeProv, userLabel, opponentLabel),
                   ),
                 ],
               );
@@ -164,6 +173,38 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
+  Widget _buildErrorState(ChallengeProvider challengeProv) {
+    final errMsg = challengeProv.error ?? 'Error al cargar datos';
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 64, color: AppTheme.error),
+            const SizedBox(height: 16),
+            Text('Error', style: AppTheme.headlineMedium),
+            const SizedBox(height: 8),
+            Text(errMsg, style: AppTheme.bodyMedium, textAlign: TextAlign.center),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _loadData,
+              icon: const Icon(Icons.refresh),
+              label: const Text('REINTENTAR'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildEmptyState() {
     return Center(
       child: Column(
@@ -230,7 +271,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ],
               ),
             ),
-            Expanded(
+            SizedBox(
+              height: 250,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(8, 8, 16, 16),
                 child: BarChart(

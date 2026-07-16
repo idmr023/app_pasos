@@ -3,6 +3,14 @@ import 'package:http/http.dart' as http;
 import '../config/api.dart';
 import '../models/step_entry.dart';
 
+Map<String, dynamic> _parseJson(http.Response response) {
+  try {
+    final data = jsonDecode(response.body);
+    if (data is Map<String, dynamic>) return data;
+  } catch (_) {}
+  throw Exception('El servidor no respondió correctamente. Verifica tu conexión.');
+}
+
 class StepService {
   final String token;
 
@@ -22,7 +30,7 @@ class StepService {
       }),
     ).timeout(ApiConfig.timeout);
 
-    final data = jsonDecode(response.body);
+    final data = _parseJson(response);
     if (response.statusCode != 200) {
       throw Exception(data['error'] ?? 'Error al guardar pasos');
     }
@@ -46,7 +54,7 @@ class StepService {
       },
     ).timeout(ApiConfig.timeout);
 
-    final data = jsonDecode(response.body);
+    final data = _parseJson(response);
     if (response.statusCode != 200) {
       throw Exception(data['error'] ?? 'Error al obtener pasos');
     }
@@ -71,7 +79,7 @@ class StepService {
       },
     ).timeout(ApiConfig.timeout);
 
-    final data = jsonDecode(response.body);
+    final data = _parseJson(response);
     if (response.statusCode != 200) {
       throw Exception(data['error'] ?? 'Error al obtener pasos');
     }
@@ -103,7 +111,7 @@ class StepService {
       },
     ).timeout(ApiConfig.timeout);
 
-    final data = jsonDecode(response.body);
+    final data = _parseJson(response);
     if (response.statusCode != 200) {
       throw Exception(data['error'] ?? 'Error al obtener calendario');
     }

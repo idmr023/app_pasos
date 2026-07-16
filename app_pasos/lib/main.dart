@@ -5,6 +5,8 @@ import 'config/theme.dart';
 import 'providers/auth_provider.dart';
 import 'providers/challenge_provider.dart';
 import 'providers/step_provider.dart';
+import 'providers/xp_provider.dart';
+import 'providers/gym_provider.dart';
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
@@ -14,6 +16,7 @@ import 'screens/challenge_join_screen.dart';
 import 'screens/challenge_room_screen.dart';
 import 'screens/analytics_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/main_shell.dart';
 import 'services/notification_service.dart';
 
 void main() async {
@@ -40,6 +43,8 @@ class AppPasosApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => ChallengeProvider()),
         ChangeNotifierProvider(create: (_) => StepProvider()),
+        ChangeNotifierProvider(create: (_) => XpProvider()),
+        ChangeNotifierProvider(create: (_) => GymProvider()),
       ],
       child: MaterialApp(
         title: 'App Pasos',
@@ -50,6 +55,7 @@ class AppPasosApp extends StatelessWidget {
           '/': (context) => const SplashScreen(),
           '/login': (context) => const LoginScreen(),
           '/register': (context) => const RegisterScreen(),
+          '/main': (context) => const MainShell(),
           '/home': (context) => const HomeScreen(),
           '/challenge-create': (context) => const ChallengeCreateScreen(),
           '/challenge-join': (context) => const ChallengeJoinScreen(),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/theme.dart';
 import '../providers/auth_provider.dart';
+import '../providers/xp_provider.dart';
 import '../services/notification_service.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/player_avatar.dart';
@@ -40,6 +41,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     {'type': 'crown', 'icon': Icons.emoji_events, 'label': 'Campeón'},
     {'type': 'fire', 'icon': Icons.local_fire_department, 'label': 'Fuego'},
     {'type': 'star', 'icon': Icons.star, 'label': 'Estrella'},
+    {'type': 'walker', 'icon': Icons.directions_walk, 'label': 'Caminante'},
+    {'type': 'marathon', 'icon': Icons.terrain, 'label': 'Maratón'},
+    {'type': 'ultra', 'icon': Icons.flash_on, 'label': 'Ultra'},
+    {'type': 'legend', 'icon': Icons.auto_awesome, 'label': 'Leyenda'},
+    {'type': 'titan', 'icon': Icons.star_border, 'label': 'Titán'},
   ];
 
   Future<void> _save() async {
@@ -73,7 +79,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Perfil actualizado'), backgroundColor: AppTheme.secondary),
       );
-      Navigator.pop(context);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(auth.error ?? 'Error al guardar'), backgroundColor: AppTheme.error),
@@ -81,40 +86,53 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _claimReward(String rewardKey) async {
+    final xpProv = context.read<XpProvider>();
+    final authProv = context.read<AuthProvider>();
+    final ok = await xpProv.claimReward(rewardKey);
+    if (ok) {
+      await authProv.refreshXp();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Recompensa reclamada'), backgroundColor: AppTheme.secondary),
+      );
+    }
+  }
+
+  Future<void> _logout() async {
+    await context.read<AuthProvider>().logout();
+    if (!mounted) return;
+    Navigator.pushReplacementNamed(context, '/login');
+  }
+
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final xpProv = context.watch<XpProvider>();
+    final user = auth.user;
+
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              AppTheme.background,
-              Color(0xFF0A0A2A),
-              AppTheme.background,
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                _buildTopBar(),
-                const SizedBox(height: 24),
-                _buildAvatarPreview(),
-                const SizedBox(height: 24),
-                _buildNameField(),
-                const SizedBox(height: 24),
-                _buildAvatarSelector(),
-                const SizedBox(height: 24),
-                _buildNotificationSettings(),
-                const SizedBox(height: 32),
-                _buildSaveButton(),
-              ],
-            ),
-          ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const SizedBox(height: 16),
+            _buildTopBar(),
+            const SizedBox(height: 24),
+            _buildLevelSection(user, xpProv),
+            const SizedBox(height: 24),
+            _buildRewardsSection(xpProv),
+            const SizedBox(height: 24),
+            _buildAvatarPreview(),
+            const SizedBox(height: 24),
+            _buildNameField(),
+            const SizedBox(height: 24),
+            _buildAvatarSelector(),
+            const SizedBox(height: 24),
+            _buildNotificationSettings(),
+            const SizedBox(height: 32),
+            _buildSaveButton(),
+          ],
         ),
       ),
     );
@@ -122,14 +140,224 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildTopBar() {
     return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
+        Text('PERFIL', style: AppTheme.titleLarge.copyWith(letterSpacing: 2)),
         IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white70),
-          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.logout, color: AppTheme.darkGrey),
+          onPressed: _logout,
         ),
-        const SizedBox(width: 8),
-        Text('EDITAR PERFIL', style: AppTheme.titleLarge.copyWith(letterSpacing: 2)),
       ],
+    );
+  }
+
+  Widget _buildLevelSection(user, XpProvider xpProv) {
+    if (xpProv.error != null) {
+      return GlassCard(
+        width: double.infinity,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              const Icon(Icons.error_outline, size: 48, color: AppTheme.error),
+              const SizedBox(height: 12),
+              Text('Error al cargar nivel', style: AppTheme.bodyMedium),
+              const SizedBox(height: 4),
+              Text(xpProv.error!, style: AppTheme.bodySmall, textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () => context.read<XpProvider>().loadXp(),
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('REINTENTAR'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final progress = xpProv.progress;
+    final earned = (progress['earned'] as num?)?.toDouble() ?? 0;
+    final needed = (progress['needed'] as num?)?.toDouble() ?? 1000;
+
+    return GlassCard(
+      width: double.infinity,
+      onTap: () => _showXpInfo(),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              PlayerAvatar(
+                radius: 28,
+                avatarType: user?.avatar ?? 'runner',
+                displayName: null,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(user?.displayName ?? 'Usuario', style: AppTheme.titleMedium),
+                    if (xpProv.title.isNotEmpty)
+                      Text(xpProv.title, style: TextStyle(color: AppTheme.primary, fontSize: 12, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text('NIVEL ${xpProv.level}', style: AppTheme.titleLarge.copyWith(color: AppTheme.primary)),
+                  Text('${xpProv.xp} XP', style: AppTheme.bodySmall),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: needed > 0 ? (earned / needed).clamp(0.0, 1.0) : 1.0,
+              backgroundColor: Colors.white.withValues(alpha: 0.08),
+              valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primary),
+              minHeight: 8,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('${earned.toInt()} XP', style: AppTheme.bodySmall),
+              Text('${needed.toInt()} XP', style: AppTheme.bodySmall),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showXpInfo() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Sistema de Experiencia', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _xpInfoRow(Icons.directions_walk, 'Cada 10 pasos registrados = 1 XP'),
+            const SizedBox(height: 12),
+            _xpInfoRow(Icons.trending_up, 'Sube de nivel acumulando XP'),
+            const SizedBox(height: 12),
+            _xpInfoRow(Icons.emoji_events, 'Cada 10 niveles desbloqueas un título y avatar'),
+            const SizedBox(height: 12),
+            _xpInfoRow(Icons.fitness_center, 'Entrenar en el gimnasio también suma XP'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ENTENDIDO', style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _xpInfoRow(IconData icon, String text) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: AppTheme.primary),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(text, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRewardsSection(XpProvider xpProv) {
+    final rewards = xpProv.rewards;
+    if (rewards.isEmpty) return const SizedBox.shrink();
+
+    return GlassCard(
+      width: double.infinity,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('RECOMPENSAS', style: AppTheme.labelLarge),
+          const SizedBox(height: 16),
+          ...rewards.map((r) {
+            final unlocked = r['unlocked'] as bool? ?? false;
+            final claimed = r['claimed'] as bool? ?? false;
+            final title = r['title'] as String? ?? '';
+            final level = r['level'] as int? ?? 0;
+            final avatar = r['avatar'] as String? ?? '';
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: (unlocked && !claimed)
+                    ? AppTheme.primary.withValues(alpha: 0.1)
+                    : Colors.white.withValues(alpha: 0.03),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: (unlocked && !claimed)
+                      ? AppTheme.primary.withValues(alpha: 0.3)
+                      : Colors.white.withValues(alpha: 0.06),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    unlocked ? (claimed ? Icons.check_circle : Icons.lock_open) : Icons.lock,
+                    color: unlocked ? (claimed ? AppTheme.secondary : AppTheme.primary) : AppTheme.darkGrey,
+                    size: 24,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Nivel $level: $title', style: TextStyle(
+                          color: unlocked ? Colors.white : AppTheme.darkGrey,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        )),
+                        Text('Avatar: $avatar', style: AppTheme.bodySmall),
+                      ],
+                    ),
+                  ),
+                  if (unlocked && !claimed)
+                    SizedBox(
+                      height: 32,
+                      child: ElevatedButton(
+                        onPressed: () => _claimReward('reward_$level'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primary,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text('RECLAMAR', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                  if (claimed)
+                    const Icon(Icons.check, color: AppTheme.secondary, size: 20),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
     );
   }
 
@@ -180,8 +408,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           Text('AVATAR', style: AppTheme.labelLarge),
           const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: _avatars.map((a) {
               final isSelected = _selectedAvatar == a['type'];
               return GestureDetector(
@@ -195,9 +424,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   child: Column(
                     children: [
-                      Icon(a['icon'] as IconData, size: 32, color: isSelected ? AppTheme.primary : AppTheme.darkGrey),
+                      Icon(a['icon'] as IconData, size: 28, color: isSelected ? AppTheme.primary : AppTheme.darkGrey),
                       const SizedBox(height: 4),
-                      Text(a['label'] as String, style: TextStyle(fontSize: 10, color: isSelected ? AppTheme.primary : AppTheme.darkGrey, fontWeight: FontWeight.w600)),
+                      Text(a['label'] as String, style: TextStyle(fontSize: 9, color: isSelected ? AppTheme.primary : AppTheme.darkGrey, fontWeight: FontWeight.w600)),
                     ],
                   ),
                 ),

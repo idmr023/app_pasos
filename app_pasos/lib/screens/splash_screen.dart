@@ -1,6 +1,8 @@
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/theme.dart';
+import '../config/api.dart';
 import '../providers/auth_provider.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -36,12 +38,18 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _initApp() async {
     final auth = context.read<AuthProvider>();
+
+    await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/health'),
+    ).timeout(const Duration(seconds: 20))
+      .catchError((_) => http.Response('', 200));
+
     await auth.tryAutoLogin();
 
     if (!mounted) return;
 
     if (auth.isAuthenticated) {
-      Navigator.pushReplacementNamed(context, '/home');
+      Navigator.pushReplacementNamed(context, '/main');
     } else {
       Navigator.pushReplacementNamed(context, '/login');
     }

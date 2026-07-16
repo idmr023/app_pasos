@@ -4,6 +4,14 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/api.dart';
 import '../models/user.dart';
 
+Map<String, dynamic> _parseJson(http.Response response) {
+  try {
+    final data = jsonDecode(response.body);
+    if (data is Map<String, dynamic>) return data;
+  } catch (_) {}
+  throw Exception('El servidor no respondió correctamente. Verifica tu conexión.');
+}
+
 class AuthService {
   static const _storage = FlutterSecureStorage();
   static const _tokenKey = 'auth_token';
@@ -27,6 +35,9 @@ class AuthService {
       'displayName': user.displayName,
       'role': user.role,
       'avatar': user.avatar,
+      'xp': user.xp,
+      'level': user.level,
+      'title': user.title,
     }));
   }
 
@@ -42,7 +53,7 @@ class AuthService {
       body: jsonEncode({'username': username, 'password': password}),
     ).timeout(ApiConfig.timeout);
 
-    final data = jsonDecode(response.body);
+    final data = _parseJson(response);
     if (response.statusCode != 200) {
       throw Exception(data['error'] ?? 'Error al iniciar sesión');
     }
@@ -63,7 +74,7 @@ class AuthService {
       }),
     ).timeout(ApiConfig.timeout);
 
-    final data = jsonDecode(response.body);
+    final data = _parseJson(response);
     if (response.statusCode != 201) {
       throw Exception(data['error'] ?? 'Error al registrar');
     }
@@ -87,7 +98,7 @@ class AuthService {
       body: jsonEncode(body),
     ).timeout(ApiConfig.timeout);
 
-    final data = jsonDecode(response.body);
+    final data = _parseJson(response);
     if (response.statusCode != 200) {
       throw Exception(data['error'] ?? 'Error al actualizar perfil');
     }
@@ -99,6 +110,9 @@ class AuthService {
       'displayName': user.displayName,
       'role': user.role,
       'avatar': user.avatar,
+      'xp': user.xp,
+      'level': user.level,
+      'title': user.title,
     }));
     return user;
   }
@@ -112,7 +126,7 @@ class AuthService {
       },
     ).timeout(ApiConfig.timeout);
 
-    final data = jsonDecode(response.body);
+    final data = _parseJson(response);
     if (response.statusCode != 200) {
       throw Exception(data['error'] ?? 'Error al obtener perfil');
     }

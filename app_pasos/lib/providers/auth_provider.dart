@@ -1,9 +1,14 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/user.dart';
 import '../services/auth_service.dart';
+import '../services/xp_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   final AuthService _authService = AuthService();
+  static const _storage = FlutterSecureStorage();
+  static const _userKey = 'auth_user';
 
   User? _user;
   String? _token;
@@ -98,6 +103,29 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  Future<void> refreshXp() async {
+    if (_token == null) return;
+    try {
+      final xpService = XpService(_token!);
+      final data = await xpService.getXp();
+      final newXp = data['xp'] as int? ?? _user?.xp ?? 0;
+      final newLevel = data['level'] as int? ?? _user?.level ?? 0;
+      final newTitle = data['title'] as String? ?? _user?.title ?? '';
+      _user = _user?.copyWith(xp: newXp, level: newLevel, title: newTitle) ?? _user;
+      await _storage.write(key: _userKey, value: jsonEncode({
+        'id': _user!.id,
+        'username': _user!.username,
+        'displayName': _user!.displayName,
+        'role': _user!.role,
+        'avatar': _user!.avatar,
+        'xp': _user!.xp,
+        'level': _user!.level,
+        'title': _user!.title,
+      }));
+      notifyListeners();
+    } catch (_) {}
   }
 
   void clearError() {
