@@ -5,8 +5,8 @@ const Routine = require('../models/Routine');
 const PersonalRecord = require('../models/PersonalRecord');
 
 const xai = new OpenAI({
-  baseURL: 'https://api.x.ai/v1',
-  apiKey: process.env.XAI_API_KEY,
+  baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+  apiKey: process.env.GEMINI_API_KEY,
 });
 
 const MAX_HISTORY = 20;
@@ -169,7 +169,7 @@ async function getCoachResponse(user, messages) {
   ];
 
   const completion = await xai.chat.completions.create({
-    model: 'grok-2-latest',
+    model: 'gemini-1.5-flash',
     messages: apiMessages,
     temperature: 0.7,
     max_tokens: 1024,
