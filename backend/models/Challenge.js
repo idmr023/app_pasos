@@ -39,4 +39,7 @@ const challengeSchema = new mongoose.Schema({
   timestamps: true
 });
 
+challengeSchema.index({ creator: 1, status: 1 });
+challengeSchema.index({ opponent: 1, status: 1 });
+
 module.exports = mongoose.model('Challenge', challengeSchema);

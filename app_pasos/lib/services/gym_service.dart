@@ -15,9 +15,10 @@ class GymService {
 
   GymService(this.token);
 
-  Future<Map<String, dynamic>> getExercises({String? category}) async {
+  Future<Map<String, dynamic>> getExercises({String? category, String? search}) async {
     final queryParams = <String, String>{};
     if (category != null) queryParams['category'] = category;
+    if (search != null && search.isNotEmpty) queryParams['search'] = search;
 
     final uri = Uri.parse('${ApiConfig.baseUrl}/gym/exercises')
         .replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
@@ -147,6 +148,75 @@ class GymService {
     final data = _parseJson(response);
     if (response.statusCode != 200) {
       throw Exception(data['error'] ?? 'Error al obtener racha');
+    }
+    return data;
+  }
+
+  Future<Map<String, dynamic>> getPersonalRecords() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/gym/personal-records'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    ).timeout(ApiConfig.timeout);
+
+    final data = _parseJson(response);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Error al obtener marcas personales');
+    }
+    return data;
+  }
+
+  Future<Map<String, dynamic>> setPersonalRecord(String exerciseId, double weightKg, {String exerciseName = ''}) async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/gym/personal-record'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({
+        'exerciseId': exerciseId,
+        'weightKg': weightKg,
+        'exerciseName': exerciseName,
+      }),
+    ).timeout(ApiConfig.timeout);
+
+    final data = _parseJson(response);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Error al guardar marca personal');
+    }
+    return data;
+  }
+
+  Future<Map<String, dynamic>> getWeightAchievements() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/gym/weight-achievements'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    ).timeout(ApiConfig.timeout);
+
+    final data = _parseJson(response);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Error al obtener logros de peso');
+    }
+    return data;
+  }
+
+  Future<Map<String, dynamic>> getXpWeightRewards() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/xp/weight-rewards'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    ).timeout(ApiConfig.timeout);
+
+    final data = _parseJson(response);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Error al obtener logros de peso');
     }
     return data;
   }

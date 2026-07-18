@@ -138,4 +138,87 @@ router.put('/profile', auth, async (req, res) => {
   }
 });
 
+router.put('/security-question', auth, async (req, res) => {
+  try {
+    const { question, answer } = req.body;
+    if (!question || !answer) {
+      return res.status(400).json({ error: 'Pregunta y respuesta requeridas' });
+    }
+    req.user.securityQuestion = question;
+    req.user.securityAnswer = await bcrypt.hash(answer.toLowerCase().trim(), 10);
+    await req.user.save();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al guardar pregunta de seguridad' });
+  }
+});
+
+router.get('/security-question/:username', async (req, res) => {
+  try {
+    const user = await User.findOne({ username: req.params.username });
+    if (!user || !user.securityQuestion) {
+      return res.status(404).json({ error: 'Usuario no encontrado o sin pregunta de seguridad' });
+    }
+    res.json({ question: user.securityQuestion });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener pregunta de seguridad' });
+  }
+});
+
+router.post('/verify-security', async (req, res) => {
+  try {
+    const { username, answer } = req.body;
+    const user = await User.findOne({ username });
+    if (!user || !user.securityAnswer) {
+      return res.status(404).json({ error: 'Usuario no encontrado o sin pregunta de seguridad' });
+    }
+
+    const valid = await bcrypt.compare(answer.toLowerCase().trim(), user.securityAnswer);
+    if (!valid) {
+      return res.status(403).json({ error: 'Respuesta incorrecta' });
+    }
+
+    const resetToken = jwt.sign(
+      { userId: user._id, purpose: 'reset' },
+      process.env.JWT_SECRET,
+      { expiresIn: '15m' }
+    );
+
+    res.json({ resetToken });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al verificar respuesta' });
+  }
+});
+
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { resetToken, newPassword } = req.body;
+
+    if (!resetToken || !newPassword) {
+      return res.status(400).json({ error: 'Token y nueva contraseña requeridos' });
+    }
+
+    const decoded = jwt.verify(resetToken, process.env.JWT_SECRET);
+    if (decoded.purpose !== 'reset') {
+      return res.status(403).json({ error: 'Token inválido' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+    }
+
+    const user = await User.findById(decoded.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al restablecer contraseña' });
+  }
+});
+
 module.exports = router;

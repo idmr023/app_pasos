@@ -6,6 +6,7 @@ import '../providers/challenge_provider.dart';
 import '../providers/step_provider.dart';
 import '../providers/xp_provider.dart';
 import '../providers/gym_provider.dart';
+import '../providers/chat_provider.dart';
 import 'home_screen.dart';
 import 'profile_screen.dart';
 import 'gym/gym_screen.dart';
@@ -46,6 +47,8 @@ class _MainShellState extends State<MainShell> {
     context.read<XpProvider>().setToken(token);
     context.read<XpProvider>().loadXp();
     context.read<GymProvider>().setToken(token);
+    context.read<ChatProvider>().setToken(token);
+    context.read<ChatProvider>().loadHistory();
   }
 
   @override

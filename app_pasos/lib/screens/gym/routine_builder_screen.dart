@@ -303,7 +303,7 @@ class _RoutineBuilderScreenState extends State<RoutineBuilderScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          details?.name ?? 'Ejercicio',
+                          details?.displayName ?? 'Ejercicio',
                           style: AppTheme.titleMedium,
                         ),
                         Text(
@@ -332,16 +332,14 @@ class _RoutineBuilderScreenState extends State<RoutineBuilderScreen> {
                 children: [
                   Expanded(
                     child: _buildSmallInput('Series', ex.sets.toString(), (v) {
-                      ex.sets = int.tryParse(v) ?? ex.sets;
+                      final parsed = int.tryParse(v) ?? ex.sets;
+                      ex.sets = parsed.clamp(3, 5);
                       setState(() {});
                     }),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _buildSmallInput('Reps', ex.reps, (v) {
-                      ex.reps = v;
-                      setState(() {});
-                    }),
+                    child: _buildRepsInput(ex),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -356,6 +354,55 @@ class _RoutineBuilderScreenState extends State<RoutineBuilderScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildRepsInput(RoutineExercise ex) {
+    const options = ['8', '10', '12', '15', '20', '30s', '45s', '60s', 'Al fallo'];
+    final isCustom = !options.contains(ex.reps);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          const Text('Reps', style: TextStyle(fontSize: 9, color: AppTheme.darkGrey, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 2),
+          isCustom
+              ? TextFormField(
+                  initialValue: ex.reps,
+                  style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w600),
+                  textAlign: TextAlign.center,
+                  keyboardType: TextInputType.text,
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  onFieldSubmitted: (v) {
+                    ex.reps = v;
+                    setState(() {});
+                  },
+                )
+              : DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: ex.reps,
+                    isDense: true,
+                    dropdownColor: AppTheme.surface,
+                    style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w600),
+                    items: options.map((o) => DropdownMenuItem(value: o, child: Text(o))).toList(),
+                    onChanged: (v) {
+                      if (v != null) {
+                        ex.reps = v;
+                        setState(() {});
+                      }
+                    },
+                  ),
+                ),
+        ],
+      ),
     );
   }
 

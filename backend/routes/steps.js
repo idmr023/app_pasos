@@ -48,7 +48,7 @@ router.post('/', auth, async (req, res) => {
       { $match: { user: req.user._id } },
       { $group: { _id: null, total: { $sum: '$steps' } } }
     ]);
-    const totalXp = Math.floor((totalSteps[0]?.total || 0) / 10);
+    const totalXp = Math.floor((totalSteps[0]?.total || 0) / 5);
     const newLevel = (() => {
       let l = 0;
       while (1000 * (l + 1) * (l + 2) / 2 <= totalXp) l++;

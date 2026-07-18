@@ -22,7 +22,9 @@ El módulo de gimnasio es independiente del sistema de pasos. Permite crear ruti
 }
 ```
 
-Hay 27 ejercicios predefinidos que se cargan vía `npm run seed`.
+Hay **1,327+ ejercicios** sincronizados desde la **WorkoutX API** (`api.workoutxapp.com/v1`) con GIFs animados, más **322 ejercicios predefinidos en español** del seed.
+- Seed local: `npm run seed`
+- Sync desde WorkoutX: `npm run sync-exercises` (manual, no se ejecuta automáticamente)
 
 ### Routine (`backend/models/Routine.js`)
 

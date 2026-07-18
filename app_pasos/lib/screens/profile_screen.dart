@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../config/theme.dart';
 import '../providers/auth_provider.dart';
 import '../providers/xp_provider.dart';
+import '../providers/gym_provider.dart';
 import '../services/notification_service.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/player_avatar.dart';
@@ -28,6 +29,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final user = context.read<AuthProvider>().user;
     _nameController = TextEditingController(text: user?.displayName ?? '');
     _selectedAvatar = user?.avatar ?? 'runner';
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<GymProvider>().loadWeightAchievements();
+      context.read<GymProvider>().loadPersonalRecords();
+    });
   }
 
   @override
@@ -122,6 +127,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _buildLevelSection(user, xpProv),
             const SizedBox(height: 24),
             _buildRewardsSection(xpProv),
+            const SizedBox(height: 24),
+            _buildWeightAchievementsSection(),
             const SizedBox(height: 24),
             _buildAvatarPreview(),
             const SizedBox(height: 24),
@@ -352,6 +359,75 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   if (claimed)
                     const Icon(Icons.check, color: AppTheme.secondary, size: 20),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWeightAchievementsSection() {
+    final gym = context.watch<GymProvider>();
+    final achievements = gym.weightAchievements;
+    if (achievements.isEmpty) return const SizedBox.shrink();
+
+    return GlassCard(
+      width: double.infinity,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('LOGROS DE PESO', style: AppTheme.labelLarge),
+          const SizedBox(height: 4),
+          Text(
+            'Máximo levantado: ${gym.maxKg.toInt()} kg',
+            style: TextStyle(color: AppTheme.gold, fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 16),
+          ...achievements.map((a) {
+            final unlocked = a['unlocked'] as bool? ?? false;
+            final title = a['title'] as String? ?? '';
+            final description = a['description'] as String? ?? '';
+            final minKg = a['minKg'] as int? ?? 0;
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: unlocked
+                    ? AppTheme.gold.withValues(alpha: 0.1)
+                    : Colors.white.withValues(alpha: 0.03),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: unlocked
+                      ? AppTheme.gold.withValues(alpha: 0.3)
+                      : Colors.white.withValues(alpha: 0.06),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    unlocked ? Icons.emoji_events : Icons.lock,
+                    color: unlocked ? AppTheme.gold : AppTheme.darkGrey,
+                    size: 24,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('$minKg kg: $title', style: TextStyle(
+                          color: unlocked ? Colors.white : AppTheme.darkGrey,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        )),
+                        Text(description, style: AppTheme.bodySmall),
+                      ],
+                    ),
+                  ),
+                  if (unlocked)
+                    const Icon(Icons.check_circle, color: AppTheme.gold, size: 20),
                 ],
               ),
             );

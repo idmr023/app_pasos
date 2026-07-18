@@ -39,10 +39,18 @@ class _SplashScreenState extends State<SplashScreen>
   Future<void> _initApp() async {
     final auth = context.read<AuthProvider>();
 
-    await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/health'),
-    ).timeout(const Duration(seconds: 20))
-      .catchError((_) => http.Response('', 200));
+    // Despertar backend con reintentos progresivos (cubre cold start de Render)
+    for (int i = 0; i < 4; i++) {
+      try {
+        await http.get(
+          Uri.parse('${ApiConfig.baseUrl}/health'),
+        ).timeout(const Duration(seconds: 6));
+        break;
+      } catch (_) {
+        if (i >= 3) break;
+        await Future.delayed(Duration(seconds: 2 + i)); // 2s, 3s, 4s
+      }
+    }
 
     await auth.tryAutoLogin();
 

@@ -37,6 +37,14 @@ const userSchema = new mongoose.Schema({
   title: {
     type: String,
     default: ''
+  },
+  securityQuestion: {
+    type: String,
+    default: ''
+  },
+  securityAnswer: {
+    type: String,
+    default: ''
   }
 }, {
   timestamps: true

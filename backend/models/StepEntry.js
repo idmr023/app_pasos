@@ -25,5 +25,6 @@ const stepEntrySchema = new mongoose.Schema({
 });
 
 stepEntrySchema.index({ user: 1, challenge: 1, date: 1 }, { unique: true });
+stepEntrySchema.index({ challenge: 1, date: 1 });
 
 module.exports = mongoose.model('StepEntry', stepEntrySchema);

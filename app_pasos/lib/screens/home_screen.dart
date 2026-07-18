@@ -39,6 +39,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     final token = auth.token!;
     context.read<ChallengeProvider>().setToken(token);
     context.read<ChallengeProvider>().loadChallenges();
+    context.read<ChallengeProvider>().loadFinishedChallenges();
     context.read<StepProvider>().setToken(token);
     context.read<StepProvider>().loadTodaySteps();
     context.read<XpProvider>().setToken(token);

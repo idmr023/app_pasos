@@ -6,12 +6,23 @@ const StepEntry = require('../models/StepEntry');
 
 const router = express.Router();
 
+const PersonalRecord = require('../models/PersonalRecord');
+
 const REWARDS = {
   reward_10: { level: 10, title: 'Caminante', avatar: 'walker' },
   reward_20: { level: 20, title: 'Maratonista', avatar: 'marathon' },
   reward_30: { level: 30, title: 'Ultramaratonista', avatar: 'ultra' },
   reward_40: { level: 40, title: 'Leyenda', avatar: 'legend' },
   reward_50: { level: 50, title: 'Titán', avatar: 'titan' },
+};
+
+const WEIGHT_REWARDS = {
+  pr_25: { key: 'pr_25', minKg: 25, title: 'Principiante', icon: 'fitness_center', description: 'Levanta 25kg en un ejercicio' },
+  pr_50: { key: 'pr_50', minKg: 50, title: 'Intermedio', icon: 'fitness_center', description: 'Levanta 50kg en un ejercicio' },
+  pr_75: { key: 'pr_75', minKg: 75, title: 'Avanzado', icon: 'fitness_center', description: 'Levanta 75kg en un ejercicio' },
+  pr_100: { key: 'pr_100', minKg: 100, title: 'Experto', icon: 'fitness_center', description: 'Levanta 100kg en un ejercicio' },
+  pr_150: { key: 'pr_150', minKg: 150, title: 'Élite', icon: 'fitness_center', description: 'Levanta 150kg en un ejercicio' },
+  pr_200: { key: 'pr_200', minKg: 200, title: 'Master', icon: 'fitness_center', description: 'Levanta 200kg en un ejercicio' },
 };
 
 function xpForLevel(level) {
@@ -35,7 +46,7 @@ function progressToNext(totalXp, currentLevel) {
 async function recalculateXp(userId) {
   const entries = await StepEntry.find({ user: userId });
   const totalSteps = entries.reduce((sum, e) => sum + e.steps, 0);
-  const totalXp = Math.floor(totalSteps / 10);
+  const totalXp = Math.floor(totalSteps / 5);
   const newLevel = levelFromXp(totalXp);
 
   const user = await User.findById(userId);
@@ -58,8 +69,6 @@ async function recalculateXp(userId) {
 
 router.get('/', auth, async (req, res) => {
   try {
-    await recalculateXp(req.user._id);
-
     const totalSteps = await StepEntry.aggregate([
       { $match: { user: req.user._id } },
       { $group: { _id: null, total: { $sum: '$steps' } } }
@@ -167,6 +176,51 @@ router.post('/claim/:rewardKey', auth, async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Error al reclamar recompensa' });
+  }
+});
+
+router.post('/add', auth, async (req, res) => {
+  try {
+    const { amount, reason } = req.body;
+    const stepXp = Math.floor((await StepEntry.aggregate([
+      { $match: { user: req.user._id } },
+      { $group: { _id: null, total: { $sum: '$steps' } } }
+    ]))[0]?.total || 0) / 5;
+
+    req.user.xp += amount || 0;
+    req.user.level = levelFromXp(req.user.xp);
+
+    const bestReward = Object.values(REWARDS)
+      .filter(r => req.user.level >= r.level)
+      .sort((a, b) => b.level - a.level)[0];
+    if (bestReward && req.user.title !== bestReward.title) {
+      req.user.title = bestReward.title;
+    }
+
+    await req.user.save();
+
+    res.json({ xp: req.user.xp, level: req.user.level, title: req.user.title });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al añadir XP' });
+  }
+});
+
+// GET /weight-rewards — weight achievement progress
+router.get('/weight-rewards', auth, async (req, res) => {
+  try {
+    const topPR = await PersonalRecord.findOne({ user: req.user._id })
+      .sort({ maxWeightKg: -1 })
+      .select('maxWeightKg');
+    const maxKg = topPR?.maxWeightKg || 0;
+
+    const rewards = Object.values(WEIGHT_REWARDS).map(r => ({
+      ...r,
+      unlocked: maxKg >= r.minKg,
+    }));
+
+    res.json({ rewards, maxKg });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener logros de peso' });
   }
 });
 

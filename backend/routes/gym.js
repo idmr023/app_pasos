@@ -3,13 +3,20 @@ const auth = require('../middleware/auth');
 const Exercise = require('../models/Exercise');
 const Routine = require('../models/Routine');
 const Workout = require('../models/Workout');
+const PersonalRecord = require('../models/PersonalRecord');
+const User = require('../models/User');
+
+const EXERCISE_XP = 5;
+const STREAK_XP = 500;
 
 const router = express.Router();
 
 router.get('/exercises', auth, async (req, res) => {
   try {
-    const { category } = req.query;
-    const filter = category ? { category } : {};
+    const { category, search } = req.query;
+    const filter = {};
+    if (category) filter.category = category;
+    if (search) filter.name = { $regex: search, $options: 'i' };
     const exercises = await Exercise.find(filter).sort({ category: 1, name: 1 });
     res.json({ exercises });
   } catch (error) {
@@ -62,7 +69,7 @@ router.get('/routines', auth, async (req, res) => {
     if (isWarmup !== undefined) filter.isWarmup = isWarmup === 'true';
 
     const routines = await Routine.find(filter)
-      .populate('exercises.exercise', 'name category imageUrl defaultSets defaultReps')
+      .populate('exercises.exercise', 'name nameSpanish category imageUrl defaultSets defaultReps videoUrl')
       .sort({ createdAt: -1 });
 
     res.json({ routines });
@@ -76,7 +83,7 @@ router.get('/routines/:id', auth, async (req, res) => {
     const routine = await Routine.findOne({
       _id: req.params.id,
       user: req.user._id
-    }).populate('exercises.exercise', 'name category imageUrl defaultSets defaultReps description');
+    }).populate('exercises.exercise', 'name category imageUrl defaultSets defaultReps description videoUrl');
 
     if (!routine) return res.status(404).json({ error: 'Rutina no encontrada' });
 
@@ -141,14 +148,102 @@ router.post('/workouts', auth, async (req, res) => {
         exercise: e.exerciseId,
         exerciseName: e.exerciseName || '',
         setsCompleted: e.setsCompleted || 0,
-        repsCompleted: e.repsCompleted || ''
+        repsCompleted: e.repsCompleted || '',
+        weightKg: e.weightKg || 0
       }))
     });
 
     await workout.save();
-    res.status(201).json({ workout });
+
+    if (exercises && exercises.length > 0) {
+      for (const e of exercises) {
+        const w = parseFloat(e.weightKg) || 0;
+        if (w > 0 && e.exerciseId) {
+          const prev = await PersonalRecord.findOne({ user: req.user._id, exercise: e.exerciseId });
+          if (!prev || w > prev.maxWeightKg) {
+            await PersonalRecord.findOneAndUpdate(
+              { user: req.user._id, exercise: e.exerciseId },
+              { user: req.user._id, exercise: e.exerciseId, exerciseName: e.exerciseName || '', maxWeightKg: w },
+              { upsert: true, new: true }
+            );
+          }
+        }
+      }
+    }
+
+    const exerciseXp = (exercises?.length || 0) * EXERCISE_XP;
+
+    const weekStart = new Date();
+    const day = weekStart.getDay();
+    const diff = weekStart.getDate() - day + (day === 0 ? -6 : 1);
+    weekStart.setDate(diff);
+    weekStart.setHours(0, 0, 0, 0);
+
+    const lastWeekStart = new Date(weekStart);
+    lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+
+    const previousWorkout = await Workout.findOne({
+      user: req.user._id,
+      date: { $gte: lastWeekStart, $lt: weekStart }
+    });
+
+    const streakXp = previousWorkout ? STREAK_XP : 0;
+    const totalXp = exerciseXp + streakXp;
+
+    if (totalXp > 0) {
+      req.user.xp = (req.user.xp || 0) + totalXp;
+      const REWARDS = {
+        10: 'Caminante', 20: 'Maratonista', 30: 'Ultramaratonista',
+        40: 'Leyenda', 50: 'Titán'
+      };
+      let l = 0;
+      while (1000 * (l + 1) * (l + 2) / 2 <= req.user.xp) l++;
+      req.user.level = l;
+      const bestTitle = Object.entries(REWARDS)
+        .filter(([level]) => l >= parseInt(level))
+        .sort(([a], [b]) => parseInt(b) - parseInt(a))[0];
+      if (bestTitle) req.user.title = bestTitle[1];
+      await req.user.save();
+    }
+
+    res.status(201).json({ workout, xpGained: totalXp });
   } catch (error) {
     res.status(500).json({ error: 'Error al registrar entrenamiento' });
+  }
+});
+
+router.get('/personal-records', auth, async (req, res) => {
+  try {
+    const records = await PersonalRecord.find({ user: req.user._id })
+      .populate('exercise', 'name category')
+      .sort({ maxWeightKg: -1 });
+    res.json({ records });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener marcas personales' });
+  }
+});
+
+router.post('/personal-record', auth, async (req, res) => {
+  try {
+    const { exerciseId, weightKg, exerciseName } = req.body;
+    if (!exerciseId || !weightKg) {
+      return res.status(400).json({ error: 'exerciseId y weightKg requeridos' });
+    }
+
+    const record = await PersonalRecord.findOneAndUpdate(
+      { user: req.user._id, exercise: exerciseId },
+      {
+        user: req.user._id,
+        exercise: exerciseId,
+        exerciseName: exerciseName || '',
+        maxWeightKg: weightKg
+      },
+      { upsert: true, new: true }
+    );
+
+    res.json({ record });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al guardar marca personal' });
   }
 });
 
@@ -156,7 +251,9 @@ router.get('/streak', auth, async (req, res) => {
   try {
     const workouts = await Workout.find({ user: req.user._id })
       .sort({ date: -1 })
-      .select('date');
+      .select('date')
+      .limit(52)
+      .lean();
 
     if (workouts.length === 0) {
       return res.json({ streak: 0, currentWeekChecked: false });
@@ -210,6 +307,34 @@ router.get('/workouts', auth, async (req, res) => {
     res.json({ workouts });
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener entrenamientos' });
+  }
+});
+
+router.get('/weight-achievements', auth, async (req, res) => {
+  try {
+    const milestones = [
+      { key: 'pr_25', minKg: 25, title: 'Principiante', description: 'Levanta 25kg en un ejercicio' },
+      { key: 'pr_50', minKg: 50, title: 'Intermedio', description: 'Levanta 50kg en un ejercicio' },
+      { key: 'pr_75', minKg: 75, title: 'Avanzado', description: 'Levanta 75kg en un ejercicio' },
+      { key: 'pr_100', minKg: 100, title: 'Experto', description: 'Levanta 100kg en un ejercicio' },
+      { key: 'pr_150', minKg: 150, title: 'Élite', description: 'Levanta 150kg en un ejercicio' },
+      { key: 'pr_200', minKg: 200, title: 'Master', description: 'Levanta 200kg en un ejercicio' },
+    ];
+
+    const topPR = await PersonalRecord.findOne({ user: req.user._id })
+      .sort({ maxWeightKg: -1 })
+      .select('maxWeightKg');
+
+    const maxKg = topPR?.maxWeightKg || 0;
+
+    const achievements = milestones.map(m => ({
+      ...m,
+      unlocked: maxKg >= m.minKg,
+    }));
+
+    res.json({ achievements, maxKg });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener logros de peso' });
   }
 });
 

@@ -4,17 +4,6 @@ const Challenge = require('../models/Challenge');
 const StepEntry = require('../models/StepEntry');
 const User = require('../models/User');
 
-async function getWinner(challengeId) {
-  const entries = await StepEntry.find({ challenge: challengeId });
-  const totals = {};
-  for (const e of entries) {
-    totals[e.user.toString()] = (totals[e.user.toString()] || 0) + e.steps;
-  }
-  if (Object.keys(totals).length === 0) return null;
-  const winnerId = Object.entries(totals).sort((a, b) => b[1] - a[1])[0][0];
-  return winnerId;
-}
-
 const router = express.Router();
 
 function generateCode() {
@@ -125,15 +114,30 @@ router.get('/', auth, async (req, res) => {
     .populate('opponent', 'username displayName avatar')
     .sort({ createdAt: -1 });
 
-    const enriched = [];
-    for (const challenge of challenges) {
-      const item = challenge.toObject();
-      if (challenge.status === 'finished') {
-        const winnerId = await getWinner(challenge._id);
-        item.winner = winnerId ? winnerId.toString() : null;
+    const finishedIds = challenges
+      .filter(c => c.status === 'finished')
+      .map(c => c._id);
+
+    const winnerMap = {};
+    if (finishedIds.length > 0) {
+      const winnerData = await StepEntry.aggregate([
+        { $match: { challenge: { $in: finishedIds } } },
+        { $group: { _id: { challenge: '$challenge', user: '$user' }, total: { $sum: '$steps' } } },
+        { $sort: { total: -1 } },
+        { $group: { _id: '$_id.challenge', winner: { $first: '$_id.user' } } }
+      ]);
+      for (const w of winnerData) {
+        winnerMap[w._id.toString()] = w.winner.toString();
       }
-      enriched.push(item);
     }
+
+    const enriched = challenges.map(c => {
+      const item = c.toObject();
+      if (c.status === 'finished') {
+        item.winner = winnerMap[c._id.toString()] || null;
+      }
+      return item;
+    });
 
     res.json({ challenges: enriched });
   } catch (error) {
@@ -163,28 +167,31 @@ router.get('/:id', auth, async (req, res) => {
       await challenge.save();
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const entries = await StepEntry.find({
-      challenge: challenge._id
-    }).populate('user', 'username displayName avatar');
-
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-    const monthEntries = await StepEntry.find({
-      challenge: challenge._id,
-      date: { $gte: startOfMonth, $lte: endOfMonth }
+    const allEntries = await StepEntry.find({
+      challenge: challenge._id
     }).populate('user', 'username displayName avatar');
 
-    const result = { challenge: challenge.toObject(), entries, monthEntries };
+    const monthEntries = allEntries.filter(e => {
+      const d = new Date(e.date);
+      return d >= startOfMonth && d <= endOfMonth;
+    });
+
+    let winner = null;
     if (challenge.status === 'finished') {
-      result.winner = await getWinner(challenge._id);
+      const totals = {};
+      for (const e of allEntries) {
+        totals[e.user._id.toString()] = (totals[e.user._id.toString()] || 0) + e.steps;
+      }
+      if (Object.keys(totals).length > 0) {
+        winner = Object.entries(totals).sort((a, b) => b[1] - a[1])[0][0];
+      }
     }
 
-    res.json(result);
+    res.json({ challenge: challenge.toObject(), entries: allEntries, monthEntries, winner });
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener reto' });
   }

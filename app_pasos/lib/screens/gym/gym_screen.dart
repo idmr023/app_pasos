@@ -6,6 +6,8 @@ import '../../providers/gym_provider.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/neon_button.dart';
 import 'exercise_library_screen.dart';
+import 'routine_config_screen.dart';
+import 'routine_confirm_screen.dart';
 import 'routine_builder_screen.dart';
 
 class GymScreen extends StatefulWidget {
@@ -16,6 +18,8 @@ class GymScreen extends StatefulWidget {
 }
 
 class _GymScreenState extends State<GymScreen> {
+  bool _hasLoaded = false;
+
   @override
   void initState() {
     super.initState();
@@ -23,10 +27,55 @@ class _GymScreenState extends State<GymScreen> {
   }
 
   void _loadData() {
+    if (_hasLoaded) return;
+    _hasLoaded = true;
     final token = context.read<AuthProvider>().token;
     if (token == null) return;
     final gym = context.read<GymProvider>();
     gym.setToken(token);
+    gym.loadExercises();
+    gym.loadRoutines();
+    gym.loadStreak();
+    gym.loadPersonalRecords();
+    gym.loadWeightAchievements();
+  }
+
+  Future<void> _createRoutineFlow(BuildContext context) async {
+    final selectedIds = await Navigator.push<List<String>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ExerciseLibraryScreen(selectionMode: true),
+      ),
+    );
+    if (selectedIds == null || selectedIds.isEmpty || !mounted) return;
+
+    final gym = context.read<GymProvider>();
+    final selectedExercises = gym.exercises
+        .where((e) => selectedIds.contains(e.id))
+        .toList();
+    if (selectedExercises.isEmpty) return;
+
+    final config = await Navigator.push<RoutineConfigResult>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RoutineConfigScreen(selectedExercises: selectedExercises),
+      ),
+    );
+    if (config == null || !mounted) return;
+
+    final saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RoutineConfirmScreen(
+          routineName: config.name,
+          selectedExercises: selectedExercises,
+          globalSets: config.sets,
+          globalReps: config.reps,
+          globalRestTime: config.restTime,
+        ),
+      ),
+    );
+    if (saved == true && mounted) _loadData();
   }
 
   @override
@@ -107,10 +156,7 @@ class _GymScreenState extends State<GymScreen> {
             child: NeonButton(
               label: 'NUEVA RUTINA',
               icon: Icons.add,
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const RoutineBuilderScreen()),
-              ).then((_) => _loadData()),
+              onPressed: () => _createRoutineFlow(context),
             ),
           ),
           const SizedBox(width: 12),

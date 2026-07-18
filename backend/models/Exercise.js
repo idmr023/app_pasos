@@ -6,6 +6,10 @@ const exerciseSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  nameSpanish: {
+    type: String,
+    default: ''
+  },
   category: {
     type: String,
     enum: ['warmup', 'strength', 'cardio', 'flexibility'],
@@ -30,9 +34,28 @@ const exerciseSchema = new mongoose.Schema({
   description: {
     type: String,
     default: ''
+  },
+  videoUrl: {
+    type: String,
+    default: ''
+  },
+  muscle: {
+    type: String,
+    default: ''
+  },
+  equipment: {
+    type: String,
+    default: ''
+  },
+  difficulty: {
+    type: String,
+    default: ''
   }
 }, {
   timestamps: true
 });
+
+exerciseSchema.index({ category: 1, name: 1 });
+exerciseSchema.index({ name: 'text', nameSpanish: 'text' });
 
 module.exports = mongoose.model('Exercise', exerciseSchema);

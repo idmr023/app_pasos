@@ -14,6 +14,10 @@ const workoutExerciseSchema = new mongoose.Schema({
   repsCompleted: {
     type: String,
     default: ''
+  },
+  weightKg: {
+    type: Number,
+    default: 0
   }
 });
 
@@ -44,5 +48,7 @@ const workoutSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+workoutSchema.index({ user: 1, date: -1 });
 
 module.exports = mongoose.model('Workout', workoutSchema);

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -5,6 +6,7 @@ import '../../config/theme.dart';
 import '../../providers/gym_provider.dart';
 import '../../models/exercise.dart';
 import '../../widgets/glass_card.dart';
+import 'exercise_detail_sheet.dart';
 
 class ExerciseLibraryScreen extends StatefulWidget {
   final bool selectionMode;
@@ -25,6 +27,9 @@ class ExerciseLibraryScreen extends StatefulWidget {
 class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
   String? _selectedCategory;
   Set<String> _selected = {};
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  Timer? _debounce;
 
   final _categories = [
     {'key': null, 'label': 'Todos'},
@@ -44,6 +49,13 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
   }
 
   @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final gym = context.watch<GymProvider>();
 
@@ -60,6 +72,7 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
           child: Column(
             children: [
               _buildTopBar(),
+              _buildSearchBar(),
               _buildCategoryFilter(),
               Expanded(
                 child: gym.isLoading
@@ -99,6 +112,49 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
     );
   }
 
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: GlassCard(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        borderRadius: 16,
+        child: TextField(
+          controller: _searchController,
+          style: AppTheme.bodyLarge,
+          decoration: InputDecoration(
+            hintText: 'Buscar ejercicios...',
+            prefixIcon: const Icon(Icons.search, color: AppTheme.primary, size: 20),
+            suffixIcon: _searchQuery.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear, color: AppTheme.darkGrey, size: 18),
+                    onPressed: () {
+                      _searchController.clear();
+                      setState(() => _searchQuery = '');
+                      context.read<GymProvider>().loadExercises(category: _selectedCategory);
+                    },
+                  )
+                : null,
+            border: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          ),
+          onChanged: (v) {
+            setState(() => _searchQuery = v);
+            _debounce?.cancel();
+            _debounce = Timer(const Duration(milliseconds: 300), () {
+              context.read<GymProvider>().loadExercises(
+                category: _selectedCategory,
+                search: v.isNotEmpty ? v : null,
+              );
+            });
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _buildCategoryFilter() {
     return Container(
       height: 44,
@@ -112,7 +168,10 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
             child: GestureDetector(
               onTap: () {
                 setState(() => _selectedCategory = cat['key']);
-                context.read<GymProvider>().loadExercises(category: cat['key']);
+                context.read<GymProvider>().loadExercises(
+                  category: cat['key'],
+                  search: _searchQuery.isNotEmpty ? _searchQuery : null,
+                );
               },
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -124,13 +183,13 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
                   ),
                 ),
                 child: Text(
-                      cat['label'] as String,
-                      style: TextStyle(
-                        color: isSelected ? AppTheme.primary : AppTheme.grey,
-                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                        fontSize: 13,
-                      ),
-                    ),
+                  cat['label'] as String,
+                  style: TextStyle(
+                    color: isSelected ? AppTheme.primary : AppTheme.grey,
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                    fontSize: 13,
+                  ),
+                ),
               ),
             ),
           );
@@ -189,129 +248,28 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
         crossAxisCount: 2,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
-        childAspectRatio: 0.8,
+        childAspectRatio: 0.85,
       ),
       itemCount: exercises.length,
-      itemBuilder: (ctx, i) => _buildExerciseCard(exercises[i]),
-    );
-  }
-
-  Widget _buildExerciseCard(Exercise ex) {
-    final isSelected = _selected.contains(ex.id);
-
-    return GestureDetector(
-      onTap: () {
-        if (widget.selectionMode) {
-          setState(() {
-            if (isSelected) {
-              _selected.remove(ex.id);
-            } else {
-              _selected.add(ex.id);
-            }
-          });
-        }
-      },
-      child: GlassCard(
-        padding: EdgeInsets.zero,
-        borderColor: isSelected ? AppTheme.primary : null,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              flex: 3,
-              child: Stack(
-                children: [
-                  Container(
-                    width: double.infinity,
-                    height: double.infinity,
-                    decoration: BoxDecoration(
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                      color: AppTheme.surface.withValues(alpha: 0.3),
-                    ),
-                    child: ex.imageUrl.isNotEmpty
-                        ? ClipRRect(
-                            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                            child: CachedNetworkImage(
-                              imageUrl: ex.imageUrl,
-                              fit: BoxFit.cover,
-                              memCacheWidth: 150,
-                              memCacheHeight: 150,
-                              placeholder: (_, __) => Center(
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: AppTheme.primary.withValues(alpha: 0.3),
-                                ),
-                              ),
-                              errorWidget: (_, __, ___) => _buildPlaceholderIcon(ex.category),
-                            ),
-                          )
-                        : _buildPlaceholderIcon(ex.category),
-                  ),
-                  if (isSelected)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                          color: AppTheme.primary,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.check, size: 16, color: Colors.white),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      ex.name,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const Spacer(),
-                    Text(
-                      '${ex.defaultSets}x${ex.defaultReps}',
-                      style: TextStyle(color: AppTheme.primary, fontSize: 11, fontWeight: FontWeight.w700),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
+      itemBuilder: (ctx, i) => _ExerciseCard(
+        ex: exercises[i],
+        isSelected: _selected.contains(exercises[i].id),
+        selectionMode: widget.selectionMode,
+        onTap: () {
+          if (widget.selectionMode) {
+            setState(() {
+              final id = exercises[i].id;
+              if (_selected.contains(id)) {
+                _selected.remove(id);
+              } else {
+                _selected.add(id);
+              }
+            });
+          } else {
+            ExerciseDetailSheet.show(context, exercises[i]);
+          }
+        },
       ),
-    );
-  }
-
-  Widget _buildPlaceholderIcon(String category) {
-    IconData icon;
-    switch (category) {
-      case 'warmup':
-        icon = Icons.whatshot;
-        break;
-      case 'cardio':
-        icon = Icons.directions_run;
-        break;
-      case 'flexibility':
-        icon = Icons.self_improvement;
-        break;
-      default:
-        icon = Icons.fitness_center;
-    }
-    return Center(
-      child: Icon(icon, size: 40, color: AppTheme.darkGrey),
     );
   }
 
@@ -342,6 +300,163 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ExerciseCard extends StatelessWidget {
+  final Exercise ex;
+  final bool isSelected;
+  final bool selectionMode;
+  final VoidCallback onTap;
+
+  const _ExerciseCard({
+    required this.ex,
+    required this.isSelected,
+    required this.selectionMode,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: GlassCard(
+        padding: EdgeInsets.zero,
+        borderColor: isSelected ? AppTheme.primary : null,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 3,
+              child: Stack(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    height: double.infinity,
+                    decoration: BoxDecoration(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                      color: AppTheme.surface.withValues(alpha: 0.3),
+                    ),
+                    child: ex.imageUrl.isNotEmpty
+                        ? ClipRRect(
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                            child: CachedNetworkImage(
+                              imageUrl: ex.imageUrl,
+                              fit: BoxFit.contain,
+                              placeholder: (_, __) => Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppTheme.primary.withValues(alpha: 0.3),
+                                ),
+                              ),
+                              errorWidget: (_, __, ___) => _placeholderIcon,
+                            ),
+                          )
+                        : _placeholderIcon,
+                  ),
+                  if (isSelected)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: AppTheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.check, size: 16, color: Colors.white),
+                      ),
+                    ),
+                  if (!selectionMode)
+                    Selector<GymProvider, double>(
+                      selector: (_, g) => g.getPrForExercise(ex.id),
+                      builder: (_, pr, __) {
+                        if (pr <= 0) return const SizedBox.shrink();
+                        return Positioned(
+                          top: 8,
+                          left: 8,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppTheme.gold.withValues(alpha: 0.8),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.emoji_events, size: 10, color: Colors.white),
+                                const SizedBox(width: 3),
+                                Text(
+                                  '${pr.toInt()}kg',
+                                  style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.w700),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                ],
+              ),
+            ),
+            Expanded(
+              flex: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      ex.displayName,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const Spacer(),
+                    Row(
+                      children: [
+                        Text(
+                          '${ex.defaultSets}x${ex.defaultReps}',
+                          style: TextStyle(color: AppTheme.primary, fontSize: 11, fontWeight: FontWeight.w700),
+                        ),
+                        if (ex.videoUrl.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          Icon(Icons.play_circle_outline, size: 12, color: AppTheme.tertiary),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget get _placeholderIcon {
+    IconData icon;
+    switch (ex.category) {
+      case 'warmup':
+        icon = Icons.whatshot;
+        break;
+      case 'cardio':
+        icon = Icons.directions_run;
+        break;
+      case 'flexibility':
+        icon = Icons.self_improvement;
+        break;
+      default:
+        icon = Icons.fitness_center;
+    }
+    return Center(
+      child: Icon(icon, size: 40, color: AppTheme.darkGrey),
     );
   }
 }

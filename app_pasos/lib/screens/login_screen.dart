@@ -135,6 +135,13 @@ class _LoginScreenState extends State<LoginScreen>
                               return const SizedBox.shrink();
                             },
                           ),
+                          const SizedBox(height: 4),
+                          GestureDetector(
+                            onTap: () => Navigator.pushNamed(context, '/forgot-password'),
+                            child: Text('¿Olvidaste tu contraseña?',
+                              style: TextStyle(color: AppTheme.primary, fontSize: 12, fontWeight: FontWeight.w600),
+                            ),
+                          ),
                         ],
                       ),
                     ),
