@@ -15,7 +15,7 @@ docs/            → Documentación para el agente (ARCHITECTURE, NAVIGATION, GY
 BottomNavigationBar con 4 tabs (IndexedStack, todos vivos en memoria):
 - **Pasos** 🏃 — HomeScreen: contador de pasos, retos activos/finalizados, crear/unirse a retos
 - **Gimnasio** 💪 — GymScreen: racha semanal, rutinas, ejercicios, flujo 3-pasos nueva rutina
-- **Chat** 🤖 — ChatScreen: Coach IA con Grok (xAI), chat funcional con memoria persistente y RAG sobre ejercicios
+- **Chat** 🤖 — ChatScreen: Coach IA con Gemini (Google AI), chat funcional con memoria persistente y RAG sobre ejercicios
 - **Perfil** 👤 — ProfileScreen: nivel XP, recompensas, editar nombre/avatar, recordatorio
 
 ## Comandos
@@ -63,7 +63,7 @@ flutter analyze
 - **Alarma**: sonido al terminar cada timer
 
 ### Módulo Chat / Coach IA
-- **Coach IA**: chatbot con Grok (xAI, compatible con API OpenAI) integrado vía backend Express
+- **Coach IA**: chatbot con Gemini (Google AI) integrado vía backend Express
 - **RAG**: recupera ejercicios relevantes de MongoDB + datos del usuario (nivel, racha, rutinas, PRs) como contexto en cada mensaje
 - **Memoria persistente**: conversaciones guardadas en MongoDB (`ChatConversation`), se retoman al abrir la app
 - **System prompt**: el coach solo recomienda ejercicios que existen en la base de datos, personaliza según nivel y progreso del usuario

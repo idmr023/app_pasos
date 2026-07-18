@@ -1,15 +1,67 @@
-const OpenAI = require('openai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const CircuitBreaker = require('opossum');
 const Exercise = require('../models/Exercise');
 const Workout = require('../models/Workout');
 const Routine = require('../models/Routine');
 const PersonalRecord = require('../models/PersonalRecord');
 
-const xai = new OpenAI({
-  baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-  apiKey: process.env.GEMINI_API_KEY,
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+const CHAT_MODEL = 'models/gemini-2.5-flash';
+const MAX_HISTORY = 20;
+const CACHE_TTL_MS = 3600 * 1000; // 1 hora
+
+// Caché en memoria: pregunta → { response, timestamp }
+const _responseCache = new Map();
+
+// Circuit breaker para Gemini
+const geminiBreaker = new CircuitBreaker(async ({ model, history, systemPrompt, lastMessage }) => {
+  const chat = model.startChat({
+    history,
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
+  });
+  const result = await chat.sendMessage(lastMessage);
+  return result.response.text();
+}, {
+  timeout: 25000,
+  errorThresholdPercentage: 50,
+  resetTimeout: 30000,
+  rollingCountTimeout: 60000,
+  rollingCountBuckets: 6,
+  name: 'gemini',
 });
 
-const MAX_HISTORY = 20;
+geminiBreaker.fallback(() => 'El asistente está procesando muchas solicitudes. Intenta en un minuto.');
+
+function _normalize(text) {
+  return text.toLowerCase().replace(/[^\w\s]/g, '').trim();
+}
+
+function _checkCache(text) {
+  const key = _normalize(text);
+  const entry = _responseCache.get(key);
+  if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) {
+    return entry.response;
+  }
+  if (entry) _responseCache.delete(key);
+  return null;
+}
+
+function _setCache(text, response) {
+  const key = _normalize(text);
+  _responseCache.set(key, { response, timestamp: Date.now() });
+}
+
+// Limpiar caché expirada cada 10 minutos
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of _responseCache) {
+    if (now - entry.timestamp >= CACHE_TTL_MS) {
+      _responseCache.delete(key);
+    }
+  }
+}, 600000);
 
 function getCategorySpanish(cat) {
   const map = { warmup: 'Calentamiento', strength: 'Fuerza', cardio: 'Cardio', flexibility: 'Flexibilidad' };
@@ -152,6 +204,16 @@ RECOMENDACIONES POR DEFECTO:
 
 async function getCoachResponse(user, messages) {
   const lastMessage = messages[messages.length - 1]?.content || '';
+  const cacheKey = lastMessage.trim();
+
+  // Caché exacta: responder sin llamar a Gemini
+  const cached = _checkCache(cacheKey);
+  if (cached) return cached;
+
+  // Circuito abierto: devolver fallback sin intentar
+  if (geminiBreaker.opened) {
+    return 'El asistente está procesando muchas solicitudes. Intenta en un minuto.';
+  }
 
   const [exercises, userContext] = await Promise.all([
     searchExercises(lastMessage),
@@ -160,22 +222,31 @@ async function getCoachResponse(user, messages) {
 
   const systemPrompt = buildSystemPrompt(user, exercises, userContext);
 
-  const apiMessages = [
-    { role: 'system', content: systemPrompt },
-    ...messages.slice(-MAX_HISTORY).map(m => ({
-      role: m.role,
-      content: m.content,
-    })),
-  ];
+  const model = genAI.getGenerativeModel({ model: CHAT_MODEL });
 
-  const completion = await xai.chat.completions.create({
-    model: 'gemini-1.5-flash',
-    messages: apiMessages,
-    temperature: 0.7,
-    max_tokens: 1024,
-  });
+  const history = messages.slice(-MAX_HISTORY, -1).map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }));
 
-  return completion.choices[0]?.message?.content || 'Lo siento, no pude procesar tu mensaje. Intenta de nuevo.';
+  try {
+    const reply = await geminiBreaker.fire({ model, history, systemPrompt, lastMessage });
+    // Cachear respuestas de más de 10 caracteres
+    if (reply && reply.length >= 10) {
+      _setCache(cacheKey, reply);
+    }
+    return reply;
+  } catch (err) {
+    // Si el breaker devolvió fallback, ese mensaje ya es la respuesta
+    if (geminiBreaker.opened) {
+      return 'El asistente está procesando muchas solicitudes. Intenta en un minuto.';
+    }
+    // 429 detectado explícitamente
+    if (err.status === 429 || (err.message && err.message.includes('429'))) {
+      return 'El asistente está procesando muchas solicitudes. Intenta en un minuto.';
+    }
+    throw err;
+  }
 }
 
 module.exports = { getCoachResponse };
