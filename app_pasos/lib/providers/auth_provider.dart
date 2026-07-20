@@ -84,7 +84,7 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> updateProfile({String? displayName, String? avatar}) async {
+  Future<bool> updateProfile({String? displayName, String? avatar, double? weight, double? height, String? goal}) async {
     final token = _token;
     if (token == null) return false;
     _isLoading = true;
@@ -92,7 +92,7 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final user = await _authService.updateProfile(token, displayName: displayName, avatar: avatar);
+      final user = await _authService.updateProfile(token, displayName: displayName, avatar: avatar, weight: weight, height: height, goal: goal);
       _user = user;
       _isLoading = false;
       notifyListeners();

@@ -121,13 +121,12 @@ class _WorkoutScreenState extends State<WorkoutScreen>
         _isResting = false;
         _currentExerciseIndex = nextIdx;
         _currentSet = 1;
+        while (_currentSet <= widget.exercises[_currentExerciseIndex].sets &&
+            _completedSets.contains(_setKey(_currentExerciseIndex, _currentSet))) {
+          _currentSet++;
+        }
       });
       _loadPr();
-      while (_currentSet <= widget.exercises[_currentExerciseIndex].sets &&
-          _completedSets.contains(_setKey(_currentExerciseIndex, _currentSet))) {
-        _currentSet++;
-      }
-      if (mounted) setState(() {});
     } else {
       setState(() {
         _isResting = false;
@@ -160,7 +159,7 @@ class _WorkoutScreenState extends State<WorkoutScreen>
       }
       return {
         'exerciseId': e.exerciseId,
-        'exerciseName': e.exercise?.name ?? '',
+        'exerciseName': e.exerciseName,
         'setsCompleted': e.sets,
         'repsCompleted': e.reps,
         'weightKg': maxWeight,
@@ -291,7 +290,7 @@ class _WorkoutScreenState extends State<WorkoutScreen>
   }
 
   Widget _buildExerciseImage(RoutineExercise ex) {
-    final imageUrl = ex.exercise?.imageUrl ?? '';
+    final imageUrl = '';
     return Container(
       width: double.infinity,
       height: 200,
@@ -321,9 +320,7 @@ class _WorkoutScreenState extends State<WorkoutScreen>
   Widget _buildPlaceholder() {
     return Center(
       child: Icon(
-        _currentExercise.exercise?.category == 'warmup'
-            ? Icons.whatshot
-            : Icons.fitness_center,
+        Icons.fitness_center,
         size: 64,
         color: AppTheme.darkGrey,
       ),
@@ -337,7 +334,7 @@ class _WorkoutScreenState extends State<WorkoutScreen>
       child: Column(
         children: [
           Text(
-            ex.exercise?.displayName ?? 'Ejercicio',
+            ex.exerciseName.isNotEmpty ? ex.exerciseName : 'Ejercicio',
             style: AppTheme.headlineMedium,
             textAlign: TextAlign.center,
           ),
@@ -351,14 +348,6 @@ class _WorkoutScreenState extends State<WorkoutScreen>
             '$setsDone de ${ex.sets} series completadas',
             style: TextStyle(color: setsDone == ex.sets ? AppTheme.tertiary : AppTheme.darkGrey, fontSize: 13, fontWeight: FontWeight.w600),
           ),
-          if (ex.exercise?.description != null && ex.exercise!.description.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              ex.exercise!.description,
-              style: AppTheme.bodyMedium,
-              textAlign: TextAlign.center,
-            ),
-          ],
         ],
       ),
     );
@@ -434,57 +423,60 @@ class _WorkoutScreenState extends State<WorkoutScreen>
                   ),
                   child: Row(
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.remove, color: AppTheme.primary, size: 18),
-                        onPressed: () {
-                          final val = ((_useLbs ? currentWeight / 0.453592 : currentWeight) - 2.5).clamp(0.0, 999.0).toDouble();
-                          setState(() {
-                            _setWeights[key] = _useLbs ? val * 0.453592 : val;
-                            controller.text = val.toStringAsFixed(1);
-                          });
-                        },
-                        constraints: const BoxConstraints(),
-                        padding: const EdgeInsets.all(4),
-                      ),
-                      Expanded(
-                        child: TextFormField(
-                          controller: controller,
-                          style: TextStyle(
-                            fontSize: 20,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                          ),
-                          textAlign: TextAlign.center,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            isDense: true,
-                            contentPadding: EdgeInsets.zero,
-                          ),
-                          onFieldSubmitted: (v) {
-                            final parsed = double.tryParse(v) ?? 0;
-                            setState(() {
-                              _setWeights[key] = _useLbs ? parsed * 0.453592 : parsed;
-                            });
-                          },
+                IconButton(
+                    icon: const Icon(Icons.remove, color: AppTheme.primary, size: 18),
+                    onPressed: () {
+                      final val = ((_useLbs ? currentWeight / 0.453592 : currentWeight) - 2.5).clamp(0.0, 999.0).toDouble();
+                      setState(() {
+                        _setWeights[key] = _useLbs ? val * 0.453592 : val;
+                        controller.text = val.toStringAsFixed(1);
+                      });
+                    },
+                    constraints: const BoxConstraints(),
+                    padding: const EdgeInsets.all(2),
+                  ),
+                  Expanded(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: TextFormField(
+                        controller: controller,
+                        style: TextStyle(
+                          fontSize: 20,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
                         ),
-                      ),
-                      Text(
-                        _useLbs ? 'lbs' : 'kg',
-                        style: TextStyle(color: AppTheme.primary, fontSize: 14, fontWeight: FontWeight.w600),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.add, color: AppTheme.primary, size: 18),
-                        onPressed: () {
-                          final val = ((_useLbs ? currentWeight / 0.453592 : currentWeight) + 2.5).clamp(0.0, 999.0).toDouble();
+                        textAlign: TextAlign.center,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        onFieldSubmitted: (v) {
+                          final parsed = double.tryParse(v) ?? 0;
                           setState(() {
-                            _setWeights[key] = _useLbs ? val * 0.453592 : val;
-                            controller.text = val.toStringAsFixed(1);
+                            _setWeights[key] = _useLbs ? parsed * 0.453592 : parsed;
                           });
                         },
-                        constraints: const BoxConstraints(),
-                        padding: const EdgeInsets.all(4),
                       ),
+                    ),
+                  ),
+                  Text(
+                    _useLbs ? 'lbs' : 'kg',
+                    style: TextStyle(color: AppTheme.primary, fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add, color: AppTheme.primary, size: 18),
+                    onPressed: () {
+                      final val = ((_useLbs ? currentWeight / 0.453592 : currentWeight) + 2.5).clamp(0.0, 999.0).toDouble();
+                      setState(() {
+                        _setWeights[key] = _useLbs ? val * 0.453592 : val;
+                        controller.text = val.toStringAsFixed(1);
+                      });
+                    },
+                    constraints: const BoxConstraints(),
+                    padding: const EdgeInsets.all(2),
+                  ),
                     ],
                   ),
                 ),

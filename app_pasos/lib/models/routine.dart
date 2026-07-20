@@ -1,8 +1,6 @@
-import 'exercise.dart';
-
 class RoutineExercise {
   final String exerciseId;
-  Exercise? exercise;
+  final String exerciseName;
   int sets;
   String reps;
   int restTime;
@@ -10,7 +8,7 @@ class RoutineExercise {
 
   RoutineExercise({
     required this.exerciseId,
-    this.exercise,
+    this.exerciseName = '',
     this.sets = 3,
     this.reps = '10',
     this.restTime = 60,
@@ -18,12 +16,11 @@ class RoutineExercise {
   });
 
   factory RoutineExercise.fromJson(Map<String, dynamic> json) {
-    final exData = json['exercise'];
     return RoutineExercise(
-      exerciseId: exData is Map<String, dynamic> ? (exData['_id'] ?? '') : (json['exercise'] ?? ''),
-      exercise: exData is Map<String, dynamic> ? Exercise.fromJson(exData) : null,
+      exerciseId: json['exercise']?.toString() ?? '',
+      exerciseName: json['exerciseName']?.toString() ?? '',
       sets: json['sets'] ?? 3,
-      reps: json['reps'] ?? '10',
+      reps: json['reps']?.toString() ?? '10',
       restTime: json['restTime'] ?? 60,
       order: json['order'] ?? 0,
     );
@@ -31,6 +28,7 @@ class RoutineExercise {
 
   Map<String, dynamic> toJson() => {
     'exerciseId': exerciseId,
+    'exerciseName': exerciseName,
     'sets': sets,
     'reps': reps,
     'restTime': restTime,

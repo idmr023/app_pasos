@@ -8,12 +8,14 @@ class Exercise {
   final String defaultReps;
   final int restTime;
   final String description;
+  final String descriptionSpanish;
   final String videoUrl;
   final String muscle;
   final String equipment;
   final String difficulty;
 
   String get displayName => nameSpanish.isNotEmpty ? nameSpanish : name;
+  String get displayDescription => descriptionSpanish.isNotEmpty ? descriptionSpanish : description;
 
   Exercise({
     required this.id,
@@ -25,6 +27,7 @@ class Exercise {
     this.defaultReps = '10',
     this.restTime = 60,
     this.description = '',
+    this.descriptionSpanish = '',
     this.videoUrl = '',
     this.muscle = '',
     this.equipment = '',
@@ -33,15 +36,16 @@ class Exercise {
 
   factory Exercise.fromJson(Map<String, dynamic> json) {
     return Exercise(
-      id: json['_id'] ?? json['id'] ?? '',
+      id: json['id']?.toString() ?? json['_id']?.toString() ?? '',
       name: json['name'] ?? '',
       nameSpanish: json['nameSpanish'] ?? '',
       category: json['category'] ?? 'strength',
       imageUrl: json['imageUrl'] ?? '',
       defaultSets: json['defaultSets'] ?? 3,
-      defaultReps: json['defaultReps'] ?? '10',
+      defaultReps: json['defaultReps']?.toString() ?? '10',
       restTime: json['restTime'] ?? 60,
       description: json['description'] ?? '',
+      descriptionSpanish: json['descriptionSpanish'] ?? '',
       videoUrl: json['videoUrl'] ?? '',
       muscle: json['muscle'] ?? '',
       equipment: json['equipment'] ?? '',
@@ -50,7 +54,7 @@ class Exercise {
   }
 
   Map<String, dynamic> toJson() => {
-    '_id': id,
+    'id': id,
     'name': name,
     'nameSpanish': nameSpanish,
     'category': category,
@@ -59,6 +63,7 @@ class Exercise {
     'defaultReps': defaultReps,
     'restTime': restTime,
     'description': description,
+    'descriptionSpanish': descriptionSpanish,
     'videoUrl': videoUrl,
     'muscle': muscle,
     'equipment': equipment,

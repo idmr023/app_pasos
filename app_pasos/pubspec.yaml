@@ -41,14 +41,13 @@ dependencies:
   intl: ^0.20.2
   google_fonts: ^6.2.1
   fl_chart: ^0.70.2
-  flutter_local_notifications: ^18.0.1
-  timezone: ^0.10.0
   share_plus: ^10.1.4
   wakelock_plus: ^1.2.10
   audioplayers: ^6.1.0
   cached_network_image: ^3.4.1
   youtube_player_flutter: ^9.1.1
   shared_preferences: ^2.5.0
+  flutter_markdown: ^0.7.7+1
 
 dev_dependencies:
   flutter_test:

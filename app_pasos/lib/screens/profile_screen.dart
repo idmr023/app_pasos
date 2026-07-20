@@ -4,7 +4,6 @@ import '../config/theme.dart';
 import '../providers/auth_provider.dart';
 import '../providers/xp_provider.dart';
 import '../providers/gym_provider.dart';
-import '../services/notification_service.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/player_avatar.dart';
 
@@ -17,18 +16,33 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   late TextEditingController _nameController;
+  late TextEditingController _weightController;
+  late TextEditingController _heightController;
   String _selectedAvatar = 'runner';
-  bool _notificationsEnabled = false;
+  String _selectedGoal = 'general';
   bool _isSaving = false;
-  int _reminderHour = 20;
-  int _reminderMinute = 0;
+
+  final _goalOptions = {
+    'general': 'General',
+    'lose_weight': 'Bajar de peso',
+    'gain_muscle': 'Ganar músculo',
+    'maintain': 'Mantener',
+    'endurance': 'Resistencia',
+  };
 
   @override
   void initState() {
     super.initState();
     final user = context.read<AuthProvider>().user;
     _nameController = TextEditingController(text: user?.displayName ?? '');
+    _weightController = TextEditingController(
+      text: user?.weight != null && user!.weight > 0 ? user.weight.toStringAsFixed(0) : '',
+    );
+    _heightController = TextEditingController(
+      text: user?.height != null && user!.height > 0 ? user.height.toStringAsFixed(0) : '',
+    );
     _selectedAvatar = user?.avatar ?? 'runner';
+    _selectedGoal = user?.goal ?? 'general';
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<GymProvider>().loadWeightAchievements();
       context.read<GymProvider>().loadPersonalRecords();
@@ -38,6 +52,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void dispose() {
     _nameController.dispose();
+    _weightController.dispose();
+    _heightController.dispose();
     super.dispose();
   }
 
@@ -62,20 +78,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
+    final weightText = _weightController.text.trim();
+    final heightText = _heightController.text.trim();
+    final weight = weightText.isNotEmpty ? double.tryParse(weightText) : null;
+    final height = heightText.isNotEmpty ? double.tryParse(heightText) : null;
+
+    if (weightText.isNotEmpty && (weight == null || weight < 20 || weight > 500)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ingresa un peso válido (20-500 kg)'), backgroundColor: AppTheme.error),
+      );
+      return;
+    }
+
+    if (heightText.isNotEmpty && (height == null || height < 50 || height > 300)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ingresa una altura válida (50-300 cm)'), backgroundColor: AppTheme.error),
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
 
     final auth = context.read<AuthProvider>();
     final success = await auth.updateProfile(
       displayName: name,
       avatar: _selectedAvatar,
+      weight: weight,
+      height: height,
+      goal: _selectedGoal,
     );
-
-    if (_notificationsEnabled) {
-      await NotificationService.init();
-      await NotificationService.scheduleDailyReminder(hour: _reminderHour, minute: _reminderMinute);
-    } else {
-      await NotificationService.cancelAll();
-    }
 
     if (!mounted) return;
     setState(() => _isSaving = false);
@@ -126,17 +157,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 24),
             _buildLevelSection(user, xpProv),
             const SizedBox(height: 24),
-            _buildRewardsSection(xpProv),
-            const SizedBox(height: 24),
-            _buildWeightAchievementsSection(),
-            const SizedBox(height: 24),
-            _buildAvatarPreview(),
-            const SizedBox(height: 24),
-            _buildNameField(),
+            _buildUserDataSection(),
             const SizedBox(height: 24),
             _buildAvatarSelector(),
             const SizedBox(height: 24),
-            _buildNotificationSettings(),
+            _buildRewardsSection(xpProv),
+            const SizedBox(height: 24),
+            _buildWeightAchievementsSection(),
             const SizedBox(height: 32),
             _buildSaveButton(),
           ],
@@ -437,40 +464,134 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildAvatarPreview() {
-    return Column(
-      children: [
-        PlayerAvatar(
-          radius: 48,
-          avatarType: _selectedAvatar,
-          displayName: _nameController.text.isNotEmpty ? _nameController.text : 'Tú',
-        ),
-      ],
-    );
-  }
-
-  Widget _buildNameField() {
+  Widget _buildUserDataSection() {
     return GlassCard(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
-      child: TextFormField(
-        controller: _nameController,
-        style: AppTheme.bodyLarge,
-        decoration: InputDecoration(
-          labelText: 'Nombre',
-          hintText: 'Tu nombre',
-          prefixIcon: const Icon(Icons.person, color: AppTheme.primary),
-          filled: true,
-          fillColor: Colors.white.withValues(alpha: 0.06),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide.none,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              PlayerAvatar(
+                radius: 36,
+                avatarType: _selectedAvatar,
+                displayName: _nameController.text.isNotEmpty ? _nameController.text : 'Tú',
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: TextFormField(
+                  controller: _nameController,
+                  style: AppTheme.bodyLarge,
+                  decoration: InputDecoration(
+                    labelText: 'Nombre',
+                    hintText: 'Tu nombre',
+                    prefixIcon: const Icon(Icons.person, color: AppTheme.primary, size: 20),
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: 0.06),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                ),
+              ),
+            ],
           ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+          const SizedBox(height: 20),
+          Text('DATOS FÍSICOS', style: AppTheme.labelLarge),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Peso (kg)', style: AppTheme.bodySmall),
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _weightController,
+                      keyboardType: TextInputType.number,
+                      style: AppTheme.bodyLarge,
+                      decoration: InputDecoration(
+                        hintText: '75',
+                        suffixText: 'kg',
+                        prefixIcon: const Icon(Icons.monitor_weight, color: AppTheme.primary, size: 20),
+                        filled: true,
+                        fillColor: Colors.white.withValues(alpha: 0.06),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Altura (cm)', style: AppTheme.bodySmall),
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _heightController,
+                      keyboardType: TextInputType.number,
+                      style: AppTheme.bodyLarge,
+                      decoration: InputDecoration(
+                        hintText: '175',
+                        suffixText: 'cm',
+                        prefixIcon: const Icon(Icons.height, color: AppTheme.primary, size: 20),
+                        filled: true,
+                        fillColor: Colors.white.withValues(alpha: 0.06),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ),
+          const SizedBox(height: 16),
+          Text('Meta fitness', style: AppTheme.bodySmall),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedGoal,
+                isExpanded: true,
+                dropdownColor: AppTheme.surface,
+                icon: const Icon(Icons.expand_more, color: AppTheme.primary),
+                style: AppTheme.bodyLarge,
+                items: _goalOptions.entries.map((e) {
+                  return DropdownMenuItem(
+                    value: e.key,
+                    child: Text(e.value, style: AppTheme.bodyLarge),
+                  );
+                }).toList(),
+                onChanged: (v) {
+                  if (v != null) setState(() => _selectedGoal = v);
+                },
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -514,94 +635,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildNotificationSettings() {
-    return GlassCard(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('RECORDATORIO DIARIO', style: AppTheme.labelLarge),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Recordar registrar pasos', style: AppTheme.bodyMedium),
-                    if (_notificationsEnabled)
-                      Text('${_reminderHour.toString().padLeft(2, '0')}:${_reminderMinute.toString().padLeft(2, '0')}', style: AppTheme.bodySmall),
-                  ],
-                ),
-              ),
-              Switch(
-                value: _notificationsEnabled,
-                activeTrackColor: AppTheme.primary.withValues(alpha: 0.4),
-                activeThumbColor: AppTheme.primary,
-                onChanged: (v) => setState(() => _notificationsEnabled = v),
-              ),
-            ],
-          ),
-          if (_notificationsEnabled) ...[
-            const SizedBox(height: 12),
-            Text('Hora del recordatorio', style: AppTheme.bodySmall),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildTimePicker('Hora', _reminderHour, (v) => _reminderHour = v, 0, 23),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildTimePicker('Minuto', _reminderMinute, (v) => _reminderMinute = v, 0, 59, step: 15),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 
-  Widget _buildTimePicker(String label, int value, Function(int) onChanged, int min, int max, {int step = 1}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.remove, size: 16, color: AppTheme.primary),
-            onPressed: () {
-              final newVal = value - step;
-              if (newVal >= min) onChanged(newVal);
-            },
-            constraints: const BoxConstraints(),
-            padding: const EdgeInsets.all(4),
-          ),
-          Expanded(
-            child: Text(
-              value.toString().padLeft(2, '0'),
-              textAlign: TextAlign.center,
-              style: AppTheme.titleMedium,
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.add, size: 16, color: AppTheme.primary),
-            onPressed: () {
-              final newVal = value + step;
-              if (newVal <= max) onChanged(newVal);
-            },
-            constraints: const BoxConstraints(),
-            padding: const EdgeInsets.all(4),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildSaveButton() {
     return SizedBox(

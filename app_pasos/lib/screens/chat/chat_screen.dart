@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../providers/chat_provider.dart';
@@ -85,15 +86,19 @@ class _ChatScreenState extends State<ChatScreen> {
                     return _buildEmptyState();
                   }
 
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (_scrollController.hasClients) {
-                      _scrollController.animateTo(
-                        _scrollController.position.maxScrollExtent,
-                        duration: const Duration(milliseconds: 100),
-                        curve: Curves.easeOut,
-                      );
-                    }
-                  });
+                  final isNearBottom = _scrollController.hasClients &&
+                      _scrollController.position.maxScrollExtent - _scrollController.position.pixels < 200;
+                  if (isNearBottom || chat.isLoading) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (_scrollController.hasClients) {
+                        _scrollController.animateTo(
+                          _scrollController.position.maxScrollExtent,
+                          duration: const Duration(milliseconds: 100),
+                          curve: Curves.easeOut,
+                        );
+                      }
+                    });
+                  }
 
                   return ListView.builder(
                     controller: _scrollController,
@@ -182,10 +187,35 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              msg.content,
-              style: AppTheme.bodyLarge.copyWith(
-                color: isUser ? AppTheme.white : AppTheme.grey,
+            MarkdownBody(
+              data: msg.content,
+              selectable: true,
+              styleSheet: MarkdownStyleSheet(
+                p: AppTheme.bodyLarge.copyWith(
+                  color: isUser ? AppTheme.white : AppTheme.grey,
+                ),
+                strong: AppTheme.bodyLarge.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: isUser ? AppTheme.white : AppTheme.grey,
+                ),
+                em: AppTheme.bodyLarge.copyWith(
+                  fontStyle: FontStyle.italic,
+                  color: isUser ? AppTheme.white : AppTheme.grey,
+                ),
+                code: AppTheme.bodySmall.copyWith(
+                  color: AppTheme.primary,
+                  fontFamily: 'monospace',
+                ),
+                blockquoteDecoration: BoxDecoration(
+                  border: Border(left: BorderSide(color: AppTheme.primary, width: 3)),
+                  color: AppTheme.primary.withValues(alpha: 0.08),
+                ),
+                listBullet: AppTheme.bodyLarge.copyWith(
+                  color: isUser ? AppTheme.white : AppTheme.grey,
+                ),
+                h1: AppTheme.titleLarge,
+                h2: AppTheme.titleMedium,
+                h3: AppTheme.titleMedium.copyWith(fontSize: 14),
               ),
             ),
             const SizedBox(height: 4),

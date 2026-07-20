@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import '../../config/theme.dart';
 import '../../models/exercise.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/exercise_image.dart';
 
 class ExerciseDetailSheet extends StatefulWidget {
   final Exercise exercise;
@@ -165,34 +165,25 @@ class _ExerciseDetailSheetState extends State<ExerciseDetailSheet> {
         borderRadius: BorderRadius.circular(20),
         color: AppTheme.surface.withValues(alpha: 0.3),
       ),
-      child: ex.imageUrl.isNotEmpty
-          ? ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: CachedNetworkImage(
-                imageUrl: ex.imageUrl,
-                fit: BoxFit.contain,
-                placeholder: (_, __) => Center(
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: AppTheme.primary.withValues(alpha: 0.3),
-                  ),
-                ),
-                errorWidget: (_, __, ___) => _buildImagePlaceholder(ex.category),
-              ),
-            )
-          : _buildImagePlaceholder(ex.category),
+      child: ExerciseImage(
+        exercise: ex,
+        fit: BoxFit.contain,
+        width: double.infinity,
+        height: 220,
+        borderRadius: BorderRadius.circular(20),
+        fallbackIcon: _placeholderIconFor(ex.category),
+        fallbackColor: AppTheme.darkGrey,
+      ),
     );
   }
 
-  Widget _buildImagePlaceholder(String category) {
-    IconData icon;
+  IconData _placeholderIconFor(String category) {
     switch (category) {
-      case 'warmup': icon = Icons.whatshot; break;
-      case 'cardio': icon = Icons.directions_run; break;
-      case 'flexibility': icon = Icons.self_improvement; break;
-      default: icon = Icons.fitness_center;
+      case 'warmup': return Icons.whatshot;
+      case 'cardio': return Icons.directions_run;
+      case 'flexibility': return Icons.self_improvement;
+      default: return Icons.fitness_center;
     }
-    return Center(child: Icon(icon, size: 64, color: AppTheme.darkGrey));
   }
 
   Widget _buildHeader(Exercise ex) {
@@ -238,17 +229,20 @@ class _ExerciseDetailSheetState extends State<ExerciseDetailSheet> {
   }
 
   Widget _buildInfoChips(Exercise ex) {
-    return Row(
-      children: [
-        if (ex.muscle.isNotEmpty)
-          _buildChip(Icons.fitness_center, ex.muscle),
-        if (ex.equipment.isNotEmpty) ...[
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          if (ex.muscle.isNotEmpty)
+            _buildChip(Icons.fitness_center, ex.muscle),
+          if (ex.equipment.isNotEmpty) ...[
+            const SizedBox(width: 12),
+            _buildChip(Icons.build, ex.equipment),
+          ],
           const SizedBox(width: 12),
-          _buildChip(Icons.build, ex.equipment),
+          _buildChip(Icons.repeat, '${ex.defaultSets}x${ex.defaultReps}'),
         ],
-        const SizedBox(width: 12),
-        _buildChip(Icons.repeat, '${ex.defaultSets}x${ex.defaultReps}'),
-      ],
+      ),
     );
   }
 
@@ -282,7 +276,7 @@ class _ExerciseDetailSheetState extends State<ExerciseDetailSheet> {
         children: [
           Text('DESCRIPCIÓN', style: AppTheme.labelLarge),
           const SizedBox(height: 8),
-          Text(ex.description, style: AppTheme.bodyLarge),
+          Text(ex.displayDescription, style: AppTheme.bodyLarge),
         ],
       ),
     );

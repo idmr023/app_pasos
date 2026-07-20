@@ -7,6 +7,9 @@ class User {
   final int xp;
   final int level;
   final String title;
+  final double weight;
+  final double height;
+  final String goal;
 
   User({
     required this.id,
@@ -17,6 +20,9 @@ class User {
     this.xp = 0,
     this.level = 0,
     this.title = '',
+    this.weight = 0,
+    this.height = 0,
+    this.goal = 'general',
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -29,6 +35,9 @@ class User {
       xp: json['xp'] ?? 0,
       level: json['level'] ?? 0,
       title: json['title'] ?? '',
+      weight: (json['weight'] as num?)?.toDouble() ?? 0,
+      height: (json['height'] as num?)?.toDouble() ?? 0,
+      goal: json['goal'] ?? 'general',
     );
   }
 
@@ -41,6 +50,9 @@ class User {
     int? xp,
     int? level,
     String? title,
+    double? weight,
+    double? height,
+    String? goal,
   }) {
     return User(
       id: id ?? this.id,
@@ -51,6 +63,9 @@ class User {
       xp: xp ?? this.xp,
       level: level ?? this.level,
       title: title ?? this.title,
+      weight: weight ?? this.weight,
+      height: height ?? this.height,
+      goal: goal ?? this.goal,
     );
   }
 }

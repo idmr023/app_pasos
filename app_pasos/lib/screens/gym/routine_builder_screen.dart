@@ -33,17 +33,12 @@ class _RoutineBuilderScreenState extends State<RoutineBuilderScreen> {
       _isWarmup = r.isWarmup;
       _exercises = r.exercises.map((e) => RoutineExercise(
         exerciseId: e.exerciseId,
-        exercise: e.exercise,
+        exerciseName: e.exerciseName,
         sets: e.sets,
         reps: e.reps,
         restTime: e.restTime,
         order: e.order,
       )).toList();
-      for (final e in _exercises) {
-        if (e.exercise != null) {
-          _exerciseDetails[e.exerciseId] = e.exercise!;
-        }
-      }
     } else {
       _nameController = TextEditingController();
     }
@@ -77,7 +72,7 @@ class _RoutineBuilderScreenState extends State<RoutineBuilderScreen> {
         final ex = exerciseMap[id];
         _exercises.add(RoutineExercise(
           exerciseId: id,
-          exercise: ex,
+          exerciseName: ex?.displayName ?? '',
           sets: ex?.defaultSets ?? 3,
           reps: ex?.defaultReps ?? '10',
           restTime: ex?.restTime ?? 60,
@@ -107,7 +102,7 @@ class _RoutineBuilderScreenState extends State<RoutineBuilderScreen> {
     final gym = context.read<GymProvider>();
     bool success;
     if (widget.editRoutine != null) {
-      success = await gym.createRoutine(body);
+      success = await gym.updateRoutine(widget.editRoutine!.id, body);
     } else {
       success = await gym.createRoutine(body);
     }
@@ -204,6 +199,7 @@ class _RoutineBuilderScreenState extends State<RoutineBuilderScreen> {
       child: TextFormField(
         controller: _nameController,
         style: AppTheme.bodyLarge,
+        maxLength: 30,
         decoration: InputDecoration(
           labelText: 'Nombre de la rutina',
           hintText: 'Ej: Push Pull, Full Body...',
@@ -303,12 +299,8 @@ class _RoutineBuilderScreenState extends State<RoutineBuilderScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          details?.displayName ?? 'Ejercicio',
+                          details?.displayName ?? (ex.exerciseName.isNotEmpty ? ex.exerciseName : 'Ejercicio'),
                           style: AppTheme.titleMedium,
-                        ),
-                        Text(
-                          details?.category.toUpperCase() ?? '',
-                          style: AppTheme.bodySmall,
                         ),
                       ],
                     ),
@@ -389,6 +381,7 @@ class _RoutineBuilderScreenState extends State<RoutineBuilderScreen> {
               : DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
                     value: ex.reps,
+                    isExpanded: true,
                     isDense: true,
                     dropdownColor: AppTheme.surface,
                     style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w600),

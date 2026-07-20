@@ -1,6 +1,4 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/exercise.dart';
 import '../models/routine.dart';
 import '../services/gym_service.dart';
@@ -9,26 +7,29 @@ class GymProvider extends ChangeNotifier {
   GymService? _service;
 
   List<Exercise> _exercises = [];
+  bool _hasMore = true;
+  bool _isLoading = false;
+
   List<Routine> _routines = [];
   int _streak = 0;
   bool _currentWeekChecked = false;
-  bool _isLoading = false;
-  bool _hasCachedExercises = false;
   String? _error;
   Map<String, double> _personalRecords = {};
   List<Map<String, dynamic>> _weightAchievements = [];
   double _maxKg = 0;
+  Map<String, dynamic>? _currentQuote;
 
   List<Exercise> get exercises => _exercises;
   List<Routine> get routines => _routines;
   int get streak => _streak;
   bool get currentWeekChecked => _currentWeekChecked;
   bool get isLoading => _isLoading;
-  bool get hasCachedExercises => _hasCachedExercises;
+  bool get hasMore => _hasMore;
   String? get error => _error;
   Map<String, double> get personalRecords => _personalRecords;
   List<Map<String, dynamic>> get weightAchievements => _weightAchievements;
   double get maxKg => _maxKg;
+  Map<String, dynamic>? get currentQuote => _currentQuote;
 
   double getPrForExercise(String exerciseId) => _personalRecords[exerciseId] ?? 0;
 
@@ -36,94 +37,47 @@ class GymProvider extends ChangeNotifier {
     _service = GymService(token);
   }
 
-  Future<void> _loadExercisesFromCache() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final cached = prefs.getString('cached_exercises');
-      if (cached != null) {
-        final list = jsonDecode(cached) as List;
-        _exercises = list.map((e) => Exercise.fromJson(e)).toList();
-        _hasCachedExercises = true;
-        notifyListeners();
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _saveExercisesToCache(List<Exercise> exercises) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final json = jsonEncode(exercises.map((e) => e.toJson()).toList());
-      await prefs.setString('cached_exercises', json);
-      _hasCachedExercises = true;
-    } catch (_) {}
-  }
-
-  Future<void> loadExercises({String? category, String? search}) async {
+  Future<void> loadExercises({String? category, String? search, int limit = 20, int offset = 0, bool reset = false}) async {
     if (_service == null) return;
+    if (_isLoading) return;
+    if (!reset && !_hasMore) return;
 
-    final isSimpleQuery = category == null && search == null;
-
-    // Si es carga inicial y hay cache, mostrar inmediatamente sin spinner
-    if (isSimpleQuery && _exercises.isEmpty) {
-      await _loadExercisesFromCache();
-    }
-
-    if (isSimpleQuery && _hasCachedExercises && _exercises.isNotEmpty) {
-      // Refrescar en background
-      _refreshExercisesInBackground(category, search);
-      return;
+    if (reset) {
+      _exercises = [];
+      _hasMore = true;
     }
 
     _isLoading = true;
     notifyListeners();
 
     try {
-      final data = await _service!.getExercises(category: category, search: search);
-      final exercises = (data['exercises'] as List)
+      final data = await _service!.getExercises(category: category, search: search, limit: limit, offset: offset);
+      final list = (data['exercises'] as List)
           .map((e) => Exercise.fromJson(e))
           .toList();
-      _exercises = exercises;
-      if (isSimpleQuery) _saveExercisesToCache(exercises);
+      _exercises.addAll(list);
+      _hasMore = list.length >= limit;
       _isLoading = false;
       notifyListeners();
     } catch (e) {
-      // Si falla y no hay cache, reintentar una vez tras 3s (cold start de Render)
       if (_exercises.isEmpty) {
         await Future.delayed(const Duration(seconds: 3));
         try {
-          final data = await _service!.getExercises(category: category, search: search);
-          final exercises = (data['exercises'] as List)
+          final data = await _service!.getExercises(category: category, search: search, limit: limit, offset: offset);
+          final list = (data['exercises'] as List)
               .map((e) => Exercise.fromJson(e))
               .toList();
-          _exercises = exercises;
-          if (isSimpleQuery) _saveExercisesToCache(exercises);
+          _exercises.addAll(list);
+          _hasMore = list.length >= limit;
           _isLoading = false;
           notifyListeners();
           return;
         } catch (_) {}
       }
-      // Sin cache ni retry exitoso, mostrar error
-      if (_exercises.isNotEmpty) {
-        _isLoading = false;
-        notifyListeners();
-        return;
-      }
       _error = e.toString().replaceFirst('Exception: ', '');
       _isLoading = false;
       notifyListeners();
     }
-  }
-
-  Future<void> _refreshExercisesInBackground(String? category, String? search) async {
-    try {
-      final data = await _service!.getExercises(category: category, search: search);
-      final exercises = (data['exercises'] as List)
-          .map((e) => Exercise.fromJson(e))
-          .toList();
-      _exercises = exercises;
-      if (category == null && search == null) _saveExercisesToCache(exercises);
-      notifyListeners();
-    } catch (_) {}
   }
 
   Future<void> loadRoutines({bool? isWarmup}) async {
@@ -149,6 +103,19 @@ class GymProvider extends ChangeNotifier {
     if (_service == null) return false;
     try {
       await _service!.createRoutine(body);
+      await loadRoutines();
+      return true;
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> updateRoutine(String id, Map<String, dynamic> body) async {
+    if (_service == null) return false;
+    try {
+      await _service!.updateRoutine(id, body);
       await loadRoutines();
       return true;
     } catch (e) {
@@ -202,9 +169,7 @@ class GymProvider extends ChangeNotifier {
       final records = data['records'] as List? ?? [];
       _personalRecords = {};
       for (final r in records) {
-        final exId = r['exercise'] is Map
-            ? (r['exercise']['_id'] ?? r['exercise']['id'] ?? '')
-            : (r['exercise'] ?? '');
+        final exId = r['exercise']?.toString() ?? '';
         final w = (r['maxWeightKg'] as num?)?.toDouble() ?? 0;
         if (exId.isNotEmpty) _personalRecords[exId] = w;
       }
@@ -229,6 +194,15 @@ class GymProvider extends ChangeNotifier {
     try {
       await _service!.setPersonalRecord(exerciseId, weightKg, exerciseName: exerciseName);
       _personalRecords[exerciseId] = weightKg;
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> loadQuote() async {
+    if (_service == null) return;
+    try {
+      final data = await _service!.getQuote(_streak);
+      _currentQuote = data['quote'] as Map<String, dynamic>?;
       notifyListeners();
     } catch (_) {}
   }

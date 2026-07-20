@@ -253,6 +253,8 @@ class RoutineConfirmScreen extends StatelessWidget {
       'name': routineName,
       'exercises': selectedExercises.asMap().entries.map((entry) => {
         'exerciseId': entry.value.id,
+        'exerciseName': entry.value.displayName,
+        'name': entry.value.displayName,
         'sets': globalSets,
         'reps': globalReps,
         'restTime': globalRestTime,

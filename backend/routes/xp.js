@@ -46,7 +46,7 @@ function progressToNext(totalXp, currentLevel) {
 async function recalculateXp(userId) {
   const entries = await StepEntry.find({ user: userId });
   const totalSteps = entries.reduce((sum, e) => sum + e.steps, 0);
-  const totalXp = Math.floor(totalSteps / 5);
+  const totalXp = Math.floor(totalSteps / 10);
   const newLevel = levelFromXp(totalXp);
 
   const user = await User.findById(userId);
@@ -185,7 +185,7 @@ router.post('/add', auth, async (req, res) => {
     const stepXp = Math.floor((await StepEntry.aggregate([
       { $match: { user: req.user._id } },
       { $group: { _id: null, total: { $sum: '$steps' } } }
-    ]))[0]?.total || 0) / 5;
+    ]))[0]?.total || 0) / 10;
 
     req.user.xp += amount || 0;
     req.user.level = levelFromXp(req.user.xp);

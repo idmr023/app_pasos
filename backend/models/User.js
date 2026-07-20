@@ -45,6 +45,19 @@ const userSchema = new mongoose.Schema({
   securityAnswer: {
     type: String,
     default: ''
+  },
+  weight: {
+    type: Number,
+    default: 0
+  },
+  height: {
+    type: Number,
+    default: 0
+  },
+  goal: {
+    type: String,
+    enum: ['lose_weight', 'gain_muscle', 'maintain', 'endurance', 'general'],
+    default: 'general'
   }
 }, {
   timestamps: true

@@ -39,7 +39,10 @@ router.post('/register', async (req, res) => {
         avatar: user.avatar,
         xp: user.xp,
         level: user.level,
-        title: user.title
+        title: user.title,
+        weight: user.weight,
+        height: user.height,
+        goal: user.goal
       }
     });
   } catch (error) {
@@ -77,7 +80,10 @@ router.post('/login', async (req, res) => {
         avatar: user.avatar,
         xp: user.xp,
         level: user.level,
-        title: user.title
+        title: user.title,
+        weight: user.weight,
+        height: user.height,
+        goal: user.goal
       }
     });
   } catch (error) {
@@ -86,23 +92,30 @@ router.post('/login', async (req, res) => {
 });
 
 router.get('/profile', auth, async (req, res) => {
-  res.json({
-    user: {
-      id: req.user._id,
-      username: req.user.username,
-      displayName: req.user.displayName,
-      role: req.user.role,
-      avatar: req.user.avatar,
-      xp: req.user.xp,
-      level: req.user.level,
-      title: req.user.title
-    }
-  });
+  try {
+    res.json({
+      user: {
+        id: req.user._id,
+        username: req.user.username,
+        displayName: req.user.displayName,
+        role: req.user.role,
+        avatar: req.user.avatar,
+        xp: req.user.xp,
+        level: req.user.level,
+        title: req.user.title,
+        weight: req.user.weight,
+        height: req.user.height,
+        goal: req.user.goal
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener perfil' });
+  }
 });
 
 router.put('/profile', auth, async (req, res) => {
   try {
-    const { displayName, avatar } = req.body;
+    const { displayName, avatar, weight, height, goal } = req.body;
 
     if (displayName !== undefined) {
       if (displayName.trim().length < 2 || displayName.trim().length > 30) {
@@ -111,12 +124,34 @@ router.put('/profile', auth, async (req, res) => {
       req.user.displayName = displayName.trim();
     }
 
-    const validAvatars = ['runner', 'crown', 'fire', 'star'];
+    const validAvatars = ['runner', 'crown', 'fire', 'star', 'walker', 'marathon', 'ultra', 'legend', 'titan'];
     if (avatar !== undefined) {
       if (!validAvatars.includes(avatar)) {
         return res.status(400).json({ error: 'Avatar inválido' });
       }
       req.user.avatar = avatar;
+    }
+
+    if (weight !== undefined) {
+      if (weight < 20 || weight > 500) {
+        return res.status(400).json({ error: 'El peso debe estar entre 20 y 500 kg' });
+      }
+      req.user.weight = weight;
+    }
+
+    if (height !== undefined) {
+      if (height < 50 || height > 300) {
+        return res.status(400).json({ error: 'La altura debe estar entre 50 y 300 cm' });
+      }
+      req.user.height = height;
+    }
+
+    const validGoals = ['lose_weight', 'gain_muscle', 'maintain', 'endurance', 'general'];
+    if (goal !== undefined) {
+      if (!validGoals.includes(goal)) {
+        return res.status(400).json({ error: 'Meta inválida' });
+      }
+      req.user.goal = goal;
     }
 
     await req.user.save();
@@ -130,7 +165,10 @@ router.put('/profile', auth, async (req, res) => {
         avatar: req.user.avatar,
         xp: req.user.xp,
         level: req.user.level,
-        title: req.user.title
+        title: req.user.title,
+        weight: req.user.weight,
+        height: req.user.height,
+        goal: req.user.goal
       }
     });
   } catch (error) {

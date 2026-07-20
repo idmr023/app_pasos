@@ -19,11 +19,8 @@ import 'screens/analytics_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/main_shell.dart';
 import 'screens/forgot_password_screen.dart';
-import 'services/notification_service.dart';
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await NotificationService.init();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
   ]);

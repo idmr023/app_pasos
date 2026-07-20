@@ -59,27 +59,24 @@ router.post('/', auth, async (req, res) => {
 router.post('/join', auth, async (req, res) => {
   try {
     const { code } = req.body;
-    const challenge = await Challenge.findOne({ code: code.toUpperCase() });
+    if (!code || typeof code !== 'string') {
+      return res.status(400).json({ error: 'Código requerido' });
+    }
+    const challenge = await Challenge.findOneAndUpdate(
+      { code: code.toUpperCase(), opponent: null, status: { $ne: 'finished' } },
+      { $set: { opponent: req.userId, status: 'active' } },
+      { new: true }
+    );
 
     if (!challenge) {
-      return res.status(404).json({ error: 'Código inválido' });
-    }
-
-    if (challenge.status === 'finished') {
-      return res.status(400).json({ error: 'Este reto ya finalizó' });
+      return res.status(404).json({ error: 'Código inválido o reto ya tiene oponente' });
     }
 
     if (challenge.creator.toString() === req.userId.toString()) {
+      // Revertir el update atómico
+      await Challenge.findByIdAndUpdate(challenge._id, { $set: { opponent: null, status: 'waiting' } });
       return res.status(400).json({ error: 'No puedes unirte a tu propio reto' });
     }
-
-    if (challenge.opponent) {
-      return res.status(400).json({ error: 'Este reto ya tiene 2 participantes' });
-    }
-
-    challenge.opponent = req.userId;
-    challenge.status = 'active';
-    await challenge.save();
 
     const creator = await User.findById(challenge.creator);
 
@@ -113,6 +110,15 @@ router.get('/', auth, async (req, res) => {
     .populate('creator', 'username displayName avatar')
     .populate('opponent', 'username displayName avatar')
     .sort({ createdAt: -1 });
+
+    // Auto-finish expired challenges
+    const now = new Date();
+    for (const c of challenges) {
+      if (c.status === 'active' && c.endDate && now > c.endDate) {
+        c.status = 'finished';
+        await c.save();
+      }
+    }
 
     const finishedIds = challenges
       .filter(c => c.status === 'finished')

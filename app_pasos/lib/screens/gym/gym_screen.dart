@@ -33,11 +33,11 @@ class _GymScreenState extends State<GymScreen> {
     if (token == null) return;
     final gym = context.read<GymProvider>();
     gym.setToken(token);
-    gym.loadExercises();
+    gym.loadExercises(reset: true);
     gym.loadRoutines();
-    gym.loadStreak();
     gym.loadPersonalRecords();
     gym.loadWeightAchievements();
+    gym.loadStreak().then((_) => gym.loadQuote());
   }
 
   Future<void> _createRoutineFlow(BuildContext context) async {
@@ -88,6 +88,8 @@ class _GymScreenState extends State<GymScreen> {
         child: CustomScrollView(
           slivers: [
             SliverToBoxAdapter(child: _buildHeader(gym)),
+            if (gym.currentQuote != null)
+              SliverToBoxAdapter(child: _buildQuoteBanner(gym)),
             SliverToBoxAdapter(child: _buildStreakCard(gym)),
             SliverToBoxAdapter(child: _buildActions()),
             SliverToBoxAdapter(child: _buildSectionTitle('MIS RUTINAS')),
@@ -110,6 +112,73 @@ class _GymScreenState extends State<GymScreen> {
     return Padding(
       padding: const EdgeInsets.only(top: 16, bottom: 16),
       child: Text('GIMNASIO', style: AppTheme.titleLarge.copyWith(letterSpacing: 2)),
+    );
+  }
+
+  Widget _buildQuoteBanner(GymProvider gym) {
+    final quote = gym.currentQuote!;
+    final type = quote['type'] as String? ?? 'streak';
+    final isAnniversary = type == 'anniversary';
+    final color = isAnniversary ? AppTheme.gold : AppTheme.tertiary;
+    final icon = isAnniversary ? Icons.celebration : Icons.bolt;
+    final label = isAnniversary ? 'ANIVERSARIO' : 'RACHA';
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            color.withValues(alpha: 0.2),
+            color.withValues(alpha: 0.05),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.4), width: 1.5),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 28),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 2,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  quote['text'] as String? ?? '',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -235,7 +304,7 @@ class _GymScreenState extends State<GymScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(routine.name, style: AppTheme.titleMedium),
+                Text(routine.name, style: AppTheme.titleMedium, overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 4),
                 Text(
                   '$exerciseCount ejercicios${routine.isWarmup ? ' · Calentamiento' : ''}',

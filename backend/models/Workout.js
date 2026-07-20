@@ -2,8 +2,7 @@ const mongoose = require('mongoose');
 
 const workoutExerciseSchema = new mongoose.Schema({
   exercise: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Exercise',
+    type: String,
     required: true
   },
   exerciseName: String,

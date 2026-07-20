@@ -10,10 +10,27 @@ router.post('/', auth, async (req, res) => {
   try {
     const { challengeId, date, steps } = req.body;
 
+    if (!challengeId || !date || steps === undefined || steps === null) {
+      return res.status(400).json({ error: 'challengeId, date y steps son requeridos' });
+    }
+    if (typeof steps !== 'number' || steps < 0) {
+      return res.status(400).json({ error: 'steps debe ser un número positivo' });
+    }
+
     const challenge = await Challenge.findById(challengeId);
     if (!challenge) {
       return res.status(404).json({ error: 'Reto no encontrado' });
     }
+
+    if (challenge.status === 'finished') {
+      return res.status(400).json({ error: 'Este reto ya finalizó' });
+    }
+
+    const entryDate = new Date(date);
+    if (isNaN(entryDate.getTime())) {
+      return res.status(400).json({ error: 'Fecha inválida' });
+    }
+    entryDate.setHours(0, 0, 0, 0);
 
     const isParticipant = challenge.creator.toString() === req.userId.toString() ||
       (challenge.opponent && challenge.opponent.toString() === req.userId.toString());
@@ -21,9 +38,6 @@ router.post('/', auth, async (req, res) => {
     if (!isParticipant) {
       return res.status(403).json({ error: 'No eres participante de este reto' });
     }
-
-    const entryDate = new Date(date);
-    entryDate.setHours(0, 0, 0, 0);
 
     let entry = await StepEntry.findOne({
       user: req.userId,
@@ -48,7 +62,7 @@ router.post('/', auth, async (req, res) => {
       { $match: { user: req.user._id } },
       { $group: { _id: null, total: { $sum: '$steps' } } }
     ]);
-    const totalXp = Math.floor((totalSteps[0]?.total || 0) / 5);
+    const totalXp = Math.floor((totalSteps[0]?.total || 0) / 10);
     const newLevel = (() => {
       let l = 0;
       while (1000 * (l + 1) * (l + 2) / 2 <= totalXp) l++;
@@ -93,6 +107,22 @@ router.get('/', auth, async (req, res) => {
 router.get('/calendar', auth, async (req, res) => {
   try {
     const { challengeId, year, month } = req.query;
+
+    if (!challengeId) {
+      return res.status(400).json({ error: 'challengeId requerido' });
+    }
+
+    const challenge = await Challenge.findById(challengeId);
+    if (!challenge) {
+      return res.status(404).json({ error: 'Reto no encontrado' });
+    }
+
+    const isParticipant = challenge.creator.toString() === req.userId.toString() ||
+      (challenge.opponent && challenge.opponent.toString() === req.userId.toString());
+    if (!isParticipant) {
+      return res.status(403).json({ error: 'No eres participante de este reto' });
+    }
+
     const y = parseInt(year) || new Date().getFullYear();
     const m = parseInt(month) || new Date().getMonth() + 1;
 

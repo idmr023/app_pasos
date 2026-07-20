@@ -1,33 +1,101 @@
 const express = require('express');
+const https = require('https');
+const dns = require('dns');
 const auth = require('../middleware/auth');
-const Exercise = require('../models/Exercise');
 const Routine = require('../models/Routine');
 const Workout = require('../models/Workout');
 const PersonalRecord = require('../models/PersonalRecord');
+const Quote = require('../models/Quote');
 const User = require('../models/User');
+
+dns.setServers(['8.8.8.8', '1.1.1.1']);
 
 const EXERCISE_XP = 5;
 const STREAK_XP = 500;
+const WGER_BASE = 'https://wger.de/api/v2';
+
+const CATEGORY_IDS = {
+  strength: '8,9,10,11,12,13,14',
+  cardio: '15',
+};
+
+const WGER_CAT_MAP = {
+  'Abs': 'strength', 'Arms': 'strength', 'Back': 'strength',
+  'Calves': 'strength', 'Cardio': 'cardio', 'Chest': 'strength',
+  'Legs': 'strength', 'Shoulders': 'strength',
+};
 
 const router = express.Router();
 
+function fetchJson(url, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'Accept': 'application/json' } }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => (data += chunk));
+      res.on('end', () => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          return resolve(fetchJson(new URL(res.headers.location, url).href, timeoutMs));
+        }
+        if (res.statusCode === 200) return resolve(JSON.parse(data));
+        reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 200)}`));
+      });
+    })
+    .on('error', reject)
+    .setTimeout(timeoutMs, function () { this.destroy(); reject(new Error('Timeout')); });
+  });
+}
+
+function cleanHtml(html) {
+  if (!html) return '';
+  return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+}
+
+function transformWgerExercise(wgerEx) {
+  const en = wgerEx.translations?.find(t => t.language === 2) || {};
+  const es = wgerEx.translations?.find(t => t.language === 4) || {};
+  const img = wgerEx.images?.find(i => i.is_main) || wgerEx.images?.[0] || {};
+  return {
+    id: `wger_${wgerEx.id}`,
+    name: en.name || '',
+    nameSpanish: es.name || '',
+    category: WGER_CAT_MAP[wgerEx.category?.name] || 'strength',
+    imageUrl: img.image || (img.thumbnails?.medium || ''),
+    defaultSets: 3,
+    defaultReps: '10',
+    restTime: 60,
+    description: cleanHtml(en.description),
+    descriptionSpanish: cleanHtml(es.description),
+    videoUrl: '',
+    muscle: (wgerEx.muscles || []).map(m => m.name_en || m.name).join(', '),
+    equipment: (wgerEx.equipment || []).map(e => e.name).join(', '),
+    difficulty: '',
+  };
+}
+
 router.get('/exercises', auth, async (req, res) => {
   try {
-    const { category, search } = req.query;
-    const filter = {};
-    if (category) filter.category = category;
-    if (search) filter.name = { $regex: search, $options: 'i' };
-    const exercises = await Exercise.find(filter).sort({ category: 1, name: 1 });
-    res.json({ exercises });
+    const { search, category, limit, offset } = req.query;
+    const params = new URLSearchParams();
+    params.set('limit', limit || '20');
+    params.set('offset', offset || '0');
+    if (search) params.set('search', search);
+    if (category && CATEGORY_IDS[category]) params.set('category', CATEGORY_IDS[category]);
+
+    const data = await fetchJson(`${WGER_BASE}/exerciseinfo/?${params}`);
+    const exercises = (data.results || []).map(transformWgerExercise);
+
+    res.json({ exercises, total: data.count });
   } catch (error) {
-    res.status(500).json({ error: 'Error al obtener ejercicios' });
+    res.status(500).json({ error: 'Error al obtener ejercicios', message: error.message });
   }
 });
 
 router.get('/exercises/:id', auth, async (req, res) => {
   try {
-    const exercise = await Exercise.findById(req.params.id);
-    if (!exercise) return res.status(404).json({ error: 'Ejercicio no encontrado' });
+    const wgerId = req.params.id.replace('wger_', '');
+    const data = await fetchJson(`${WGER_BASE}/exerciseinfo/${wgerId}/`);
+    const exercise = transformWgerExercise(data);
+    if (!exercise.name) return res.status(404).json({ error: 'Ejercicio no encontrado' });
     res.json({ exercise });
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener ejercicio' });
@@ -42,11 +110,17 @@ router.post('/routines', auth, async (req, res) => {
       return res.status(400).json({ error: 'Nombre y ejercicios requeridos' });
     }
 
+    const existing = await Routine.findOne({ user: req.user._id, name });
+    if (existing) {
+      return res.status(409).json({ error: 'Ya tienes una rutina con ese nombre' });
+    }
+
     const routine = new Routine({
       user: req.user._id,
       name,
       exercises: exercises.map((e, i) => ({
-        exercise: e.exerciseId,
+        exercise: e.exerciseId || e.exercise,
+        exerciseName: e.exerciseName || e.name || '',
         sets: e.sets || 3,
         reps: e.reps || '10',
         restTime: e.restTime || 60,
@@ -68,9 +142,7 @@ router.get('/routines', auth, async (req, res) => {
     const filter = { user: req.user._id };
     if (isWarmup !== undefined) filter.isWarmup = isWarmup === 'true';
 
-    const routines = await Routine.find(filter)
-      .populate('exercises.exercise', 'name nameSpanish category imageUrl defaultSets defaultReps videoUrl')
-      .sort({ createdAt: -1 });
+    const routines = await Routine.find(filter).sort({ createdAt: -1 });
 
     res.json({ routines });
   } catch (error) {
@@ -83,7 +155,7 @@ router.get('/routines/:id', auth, async (req, res) => {
     const routine = await Routine.findOne({
       _id: req.params.id,
       user: req.user._id
-    }).populate('exercises.exercise', 'name category imageUrl defaultSets defaultReps description videoUrl');
+    });
 
     if (!routine) return res.status(404).json({ error: 'Rutina no encontrada' });
 
@@ -100,10 +172,17 @@ router.put('/routines/:id', auth, async (req, res) => {
 
     if (!routine) return res.status(404).json({ error: 'Rutina no encontrada' });
 
-    if (name) routine.name = name;
+    if (name && name !== routine.name) {
+      const duplicate = await Routine.findOne({ user: req.user._id, name, _id: { $ne: req.params.id } });
+      if (duplicate) {
+        return res.status(409).json({ error: 'Ya tienes una rutina con ese nombre' });
+      }
+      routine.name = name;
+    }
     if (exercises) {
       routine.exercises = exercises.map((e, i) => ({
-        exercise: e.exerciseId,
+        exercise: e.exerciseId || e.exercise,
+        exerciseName: e.exerciseName || e.name || '',
         sets: e.sets || 3,
         reps: e.reps || '10',
         restTime: e.restTime || 60,
@@ -215,7 +294,6 @@ router.post('/workouts', auth, async (req, res) => {
 router.get('/personal-records', auth, async (req, res) => {
   try {
     const records = await PersonalRecord.find({ user: req.user._id })
-      .populate('exercise', 'name category')
       .sort({ maxWeightKg: -1 });
     res.json({ records });
   } catch (error) {
@@ -335,6 +413,44 @@ router.get('/weight-achievements', auth, async (req, res) => {
     res.json({ achievements, maxKg });
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener logros de peso' });
+  }
+});
+
+router.get('/quote', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('createdAt');
+    if (!user) return res.json({ quote: null });
+
+    const monthsSinceSignup = Math.floor(
+      (Date.now() - new Date(user.createdAt).getTime()) / (1000 * 60 * 60 * 24 * 30)
+    );
+    const weeks = parseInt(req.query.weeks) || 0;
+
+    let quote = null;
+
+    if (weeks >= 10) {
+      quote = await Quote.findOne({
+        type: 'streak',
+        minWeeks: { $lte: weeks },
+        active: true
+      }).sort({ minWeeks: -1 });
+    }
+
+    if (!quote) {
+      quote = await Quote.findOne({
+        type: 'anniversary',
+        minMonths: { $lte: monthsSinceSignup },
+        active: true
+      }).sort({ minMonths: -1 });
+    }
+
+    res.json({
+      quote: quote ? { text: quote.text, type: quote.type } : null,
+      weeks,
+      months: monthsSinceSignup
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener frase' });
   }
 });
 

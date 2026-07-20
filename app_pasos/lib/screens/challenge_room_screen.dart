@@ -27,8 +27,11 @@ class _ChallengeRoomScreenState extends State<ChallengeRoomScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _challengeId = ModalRoute.of(context)!.settings.arguments as String;
-    _loadData();
+    final route = ModalRoute.of(context);
+    if (route?.settings.arguments is String) {
+      _challengeId = route!.settings.arguments as String;
+      _loadData();
+    }
   }
 
   void _loadData() {

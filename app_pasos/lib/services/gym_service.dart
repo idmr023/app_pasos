@@ -15,8 +15,11 @@ class GymService {
 
   GymService(this.token);
 
-  Future<Map<String, dynamic>> getExercises({String? category, String? search}) async {
-    final queryParams = <String, String>{};
+  Future<Map<String, dynamic>> getExercises({String? category, String? search, int limit = 20, int offset = 0}) async {
+    final queryParams = <String, String>{
+      'limit': limit.toString(),
+      'offset': offset.toString(),
+    };
     if (category != null) queryParams['category'] = category;
     if (search != null && search.isNotEmpty) queryParams['search'] = search;
 
@@ -217,6 +220,22 @@ class GymService {
     final data = _parseJson(response);
     if (response.statusCode != 200) {
       throw Exception(data['error'] ?? 'Error al obtener logros de peso');
+    }
+    return data;
+  }
+
+  Future<Map<String, dynamic>> getQuote(int weeks) async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/gym/quote?weeks=$weeks'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    ).timeout(ApiConfig.timeout);
+
+    final data = _parseJson(response);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Error al obtener frase');
     }
     return data;
   }

@@ -105,14 +105,15 @@ class PlayerAvatar extends StatelessWidget {
 
   IconData _getIcon(String type) {
     switch (type) {
-      case 'crown':
-        return Icons.emoji_events;
-      case 'fire':
-        return Icons.local_fire_department;
-      case 'star':
-        return Icons.star;
-      default:
-        return Icons.directions_run;
+      case 'crown':    return Icons.emoji_events;
+      case 'fire':     return Icons.local_fire_department;
+      case 'star':     return Icons.star;
+      case 'walker':   return Icons.directions_walk;
+      case 'marathon': return Icons.directions_run;
+      case 'ultra':    return Icons.terrain;
+      case 'legend':   return Icons.auto_awesome;
+      case 'titan':    return Icons.flash_on;
+      default:         return Icons.directions_run;
     }
   }
 }

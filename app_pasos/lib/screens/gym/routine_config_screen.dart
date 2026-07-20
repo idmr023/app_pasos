@@ -167,6 +167,7 @@ class _RoutineConfigScreenState extends State<RoutineConfigScreen> {
       child: TextFormField(
         controller: _nameController,
         style: AppTheme.bodyLarge,
+        maxLength: 30,
         decoration: const InputDecoration(
           labelText: 'Nombre de la rutina',
           hintText: 'Ej: Push Pull, Full Body...',
@@ -189,18 +190,44 @@ class _RoutineConfigScreenState extends State<RoutineConfigScreen> {
         children: [
           Text('CONFIGURACIÓN GLOBAL', style: AppTheme.labelLarge),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(child: _buildNumberInput('Series', _sets, (v) {
-                setState(() => _sets = v.clamp(1, 10));
-              })),
-              const SizedBox(width: 12),
-              Expanded(child: _buildRepsSelector()),
-              const SizedBox(width: 12),
-              Expanded(child: _buildNumberInput('Descanso (s)', _restTime, (v) {
-                setState(() => _restTime = v.clamp(5, 300));
-              })),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              return constraints.maxWidth < 400
+                  ? Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(child: _buildNumberInput('Series', _sets, (v) {
+                              setState(() => _sets = v.clamp(1, 10));
+                            })),
+                            const SizedBox(width: 12),
+                            Expanded(child: _buildRepsSelector()),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(child: _buildNumberInput('Descanso (s)', _restTime, (v) {
+                              setState(() => _restTime = v.clamp(5, 300));
+                            })),
+                          ],
+                        ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(child: _buildNumberInput('Series', _sets, (v) {
+                          setState(() => _sets = v.clamp(1, 10));
+                        })),
+                        const SizedBox(width: 12),
+                        Expanded(child: _buildRepsSelector()),
+                        const SizedBox(width: 12),
+                        Expanded(child: _buildNumberInput('Descanso (s)', _restTime, (v) {
+                          setState(() => _restTime = v.clamp(5, 300));
+                        })),
+                      ],
+                    );
+            },
           ),
         ],
       ),
@@ -232,16 +259,19 @@ class _RoutineConfigScreenState extends State<RoutineConfigScreen> {
                   child: const Icon(Icons.remove, size: 16, color: AppTheme.primary),
                 ),
               ),
-              const SizedBox(width: 12),
-              Text(
-                '$value',
-                style: const TextStyle(
-                  fontSize: 22,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
+              const SizedBox(width: 8),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  '$value',
+                  style: const TextStyle(
+                    fontSize: 22,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               GestureDetector(
                 onTap: () => onChange(value + 1),
                 child: Container(
@@ -274,6 +304,7 @@ class _RoutineConfigScreenState extends State<RoutineConfigScreen> {
           DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               value: _reps,
+              isExpanded: true,
               isDense: true,
               dropdownColor: AppTheme.surface,
               style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w700),

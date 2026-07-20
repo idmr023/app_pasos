@@ -12,6 +12,18 @@ Map<String, dynamic> _parseJson(http.Response response) {
   throw Exception('El servidor no respondió correctamente. Verifica tu conexión.');
 }
 
+Future<T> _withRetry<T>(Future<T> Function() fn, {int retries = 2}) async {
+  for (int i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i >= retries) rethrow;
+      await Future.delayed(Duration(seconds: 1 + i));
+    }
+  }
+  throw Exception('No se pudo conectar con el servidor');
+}
+
 class AuthService {
   static const _storage = FlutterSecureStorage();
   static const _tokenKey = 'auth_token';
@@ -38,6 +50,9 @@ class AuthService {
       'xp': user.xp,
       'level': user.level,
       'title': user.title,
+      'weight': user.weight,
+      'height': user.height,
+      'goal': user.goal,
     }));
   }
 
@@ -47,47 +62,54 @@ class AuthService {
   }
 
   Future<Map<String, dynamic>> login(String username, String password) async {
-    final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/auth/login'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'username': username, 'password': password}),
-    ).timeout(ApiConfig.timeout);
+    return _withRetry(() async {
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/auth/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'username': username, 'password': password}),
+      ).timeout(ApiConfig.timeout);
 
-    final data = _parseJson(response);
-    if (response.statusCode != 200) {
-      throw Exception(data['error'] ?? 'Error al iniciar sesión');
-    }
+      final data = _parseJson(response);
+      if (response.statusCode != 200) {
+        throw Exception(data['error'] ?? 'Error al iniciar sesión');
+      }
 
-    final user = User.fromJson(data['user']);
-    await _saveSession(data['token'], user);
-    return {'token': data['token'], 'user': user};
+      final user = User.fromJson(data['user']);
+      await _saveSession(data['token'], user);
+      return {'token': data['token'], 'user': user};
+    });
   }
 
   Future<Map<String, dynamic>> register(String username, String password, String displayName) async {
-    final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/auth/register'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'username': username,
-        'password': password,
-        'displayName': displayName,
-      }),
-    ).timeout(ApiConfig.timeout);
+    return _withRetry(() async {
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/auth/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'username': username,
+          'password': password,
+          'displayName': displayName,
+        }),
+      ).timeout(ApiConfig.timeout);
 
-    final data = _parseJson(response);
-    if (response.statusCode != 201) {
-      throw Exception(data['error'] ?? 'Error al registrar');
-    }
+      final data = _parseJson(response);
+      if (response.statusCode != 201) {
+        throw Exception(data['error'] ?? 'Error al registrar');
+      }
 
-    final user = User.fromJson(data['user']);
-    await _saveSession(data['token'], user);
-    return {'token': data['token'], 'user': user};
+      final user = User.fromJson(data['user']);
+      await _saveSession(data['token'], user);
+      return {'token': data['token'], 'user': user};
+    });
   }
 
-  Future<User> updateProfile(String token, {String? displayName, String? avatar}) async {
+  Future<User> updateProfile(String token, {String? displayName, String? avatar, double? weight, double? height, String? goal}) async {
     final body = <String, dynamic>{};
     if (displayName != null) body['displayName'] = displayName;
     if (avatar != null) body['avatar'] = avatar;
+    if (weight != null) body['weight'] = weight;
+    if (height != null) body['height'] = height;
+    if (goal != null) body['goal'] = goal;
 
     final response = await http.put(
       Uri.parse('${ApiConfig.baseUrl}/auth/profile'),
@@ -113,6 +135,9 @@ class AuthService {
       'xp': user.xp,
       'level': user.level,
       'title': user.title,
+      'weight': user.weight,
+      'height': user.height,
+      'goal': user.goal,
     }));
     return user;
   }

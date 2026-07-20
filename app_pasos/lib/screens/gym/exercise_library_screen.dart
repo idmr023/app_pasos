@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../config/theme.dart';
 import '../../providers/gym_provider.dart';
 import '../../models/exercise.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/exercise_image.dart';
 import 'exercise_detail_sheet.dart';
 
 class ExerciseLibraryScreen extends StatefulWidget {
@@ -30,13 +30,12 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   Timer? _debounce;
+  final ScrollController _scrollController = ScrollController();
 
   final _categories = [
     {'key': null, 'label': 'Todos'},
-    {'key': 'warmup', 'label': 'Calentamiento'},
     {'key': 'strength', 'label': 'Fuerza'},
     {'key': 'cardio', 'label': 'Cardio'},
-    {'key': 'flexibility', 'label': 'Flexibilidad'},
   ];
 
   @override
@@ -44,14 +43,28 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
     super.initState();
     _selected = Set.from(widget.selectedIds ?? []);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<GymProvider>().loadExercises();
+      context.read<GymProvider>().loadExercises(reset: true);
     });
+    _scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      final gym = context.read<GymProvider>();
+      if (gym.hasMore && !gym.isLoading) {
+        gym.loadExercises(
+          category: _selectedCategory,
+          search: _searchQuery.isNotEmpty ? _searchQuery : null,
+        );
+      }
+    }
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -75,11 +88,11 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
               _buildSearchBar(),
               _buildCategoryFilter(),
               Expanded(
-                child: gym.isLoading
+                child: gym.isLoading && gym.exercises.isEmpty
                     ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
-                    : gym.error != null
+                    : gym.error != null && gym.exercises.isEmpty
                         ? _buildErrorState(gym)
-                        : _buildGrid(gym.exercises),
+                        : _buildGrid(gym),
               ),
               if (widget.selectionMode)
                 _buildSelectionBar(),
@@ -131,7 +144,7 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
                     onPressed: () {
                       _searchController.clear();
                       setState(() => _searchQuery = '');
-                      context.read<GymProvider>().loadExercises(category: _selectedCategory);
+                      context.read<GymProvider>().loadExercises(category: _selectedCategory, reset: true);
                     },
                   )
                 : null,
@@ -147,6 +160,7 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
               context.read<GymProvider>().loadExercises(
                 category: _selectedCategory,
                 search: v.isNotEmpty ? v : null,
+                reset: true,
               );
             });
           },
@@ -171,6 +185,7 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
                 context.read<GymProvider>().loadExercises(
                   category: cat['key'],
                   search: _searchQuery.isNotEmpty ? _searchQuery : null,
+                  reset: true,
                 );
               },
               child: Container(
@@ -212,7 +227,7 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
             Text(gym.error!, style: AppTheme.bodyMedium, textAlign: TextAlign.center),
             const SizedBox(height: 24),
             ElevatedButton.icon(
-              onPressed: () => context.read<GymProvider>().loadExercises(),
+              onPressed: () => context.read<GymProvider>().loadExercises(reset: true),
               icon: const Icon(Icons.refresh),
               label: const Text('REINTENTAR'),
               style: ElevatedButton.styleFrom(
@@ -228,7 +243,8 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
     );
   }
 
-  Widget _buildGrid(List<Exercise> exercises) {
+  Widget _buildGrid(GymProvider gym) {
+    final exercises = gym.exercises;
     if (exercises.isEmpty) {
       return Center(
         child: Column(
@@ -243,6 +259,7 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
     }
 
     return GridView.builder(
+      controller: _scrollController,
       padding: const EdgeInsets.all(16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
@@ -250,26 +267,36 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
         mainAxisSpacing: 12,
         childAspectRatio: 0.85,
       ),
-      itemCount: exercises.length,
-      itemBuilder: (ctx, i) => _ExerciseCard(
-        ex: exercises[i],
-        isSelected: _selected.contains(exercises[i].id),
-        selectionMode: widget.selectionMode,
-        onTap: () {
-          if (widget.selectionMode) {
-            setState(() {
-              final id = exercises[i].id;
-              if (_selected.contains(id)) {
-                _selected.remove(id);
-              } else {
-                _selected.add(id);
-              }
-            });
-          } else {
-            ExerciseDetailSheet.show(context, exercises[i]);
-          }
-        },
-      ),
+      itemCount: exercises.length + (gym.hasMore ? 1 : 0),
+      itemBuilder: (ctx, i) {
+        if (i == exercises.length) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: CircularProgressIndicator(color: AppTheme.primary),
+            ),
+          );
+        }
+        return _ExerciseCard(
+          ex: exercises[i],
+          isSelected: _selected.contains(exercises[i].id),
+          selectionMode: widget.selectionMode,
+          onTap: () {
+            if (widget.selectionMode) {
+              setState(() {
+                final id = exercises[i].id;
+                if (_selected.contains(id)) {
+                  _selected.remove(id);
+                } else {
+                  _selected.add(id);
+                }
+              });
+            } else {
+              ExerciseDetailSheet.show(context, exercises[i]);
+            }
+          },
+        );
+      },
     );
   }
 
@@ -324,139 +351,76 @@ class _ExerciseCard extends StatelessWidget {
       child: GlassCard(
         padding: EdgeInsets.zero,
         borderColor: isSelected ? AppTheme.primary : null,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
           children: [
-            Expanded(
-              flex: 3,
-              child: Stack(
-                children: [
-                  Container(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: ExerciseImage(
+                    exercise: ex,
+                    fit: BoxFit.cover,
                     width: double.infinity,
-                    height: double.infinity,
-                    decoration: BoxDecoration(
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                      color: AppTheme.surface.withValues(alpha: 0.3),
-                    ),
-                    child: ex.imageUrl.isNotEmpty
-                        ? ClipRRect(
-                            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                            child: CachedNetworkImage(
-                              imageUrl: ex.imageUrl,
-                              fit: BoxFit.contain,
-                              placeholder: (_, __) => Center(
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: AppTheme.primary.withValues(alpha: 0.3),
-                                ),
-                              ),
-                              errorWidget: (_, __, ___) => _placeholderIcon,
-                            ),
-                          )
-                        : _placeholderIcon,
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                    fallbackIcon: _placeholderIconFor(ex.category),
+                    fallbackColor: _placeholderColorFor(ex.category),
                   ),
-                  if (isSelected)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                          color: AppTheme.primary,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.check, size: 16, color: Colors.white),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        ex.displayName,
+                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                  if (!selectionMode)
-                    Selector<GymProvider, double>(
-                      selector: (_, g) => g.getPrForExercise(ex.id),
-                      builder: (_, pr, __) {
-                        if (pr <= 0) return const SizedBox.shrink();
-                        return Positioned(
-                          top: 8,
-                          left: 8,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppTheme.gold.withValues(alpha: 0.8),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.emoji_events, size: 10, color: Colors.white),
-                                const SizedBox(width: 3),
-                                Text(
-                                  '${pr.toInt()}kg',
-                                  style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.w700),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                ],
-              ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${ex.defaultSets}×${ex.defaultReps}',
+                        style: TextStyle(color: AppTheme.grey.withValues(alpha: 0.7), fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            Expanded(
-              flex: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      ex.displayName,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const Spacer(),
-                    Row(
-                      children: [
-                        Text(
-                          '${ex.defaultSets}x${ex.defaultReps}',
-                          style: TextStyle(color: AppTheme.primary, fontSize: 11, fontWeight: FontWeight.w700),
-                        ),
-                        if (ex.videoUrl.isNotEmpty) ...[
-                          const SizedBox(width: 6),
-                          Icon(Icons.play_circle_outline, size: 12, color: AppTheme.tertiary),
-                        ],
-                      ],
-                    ),
-                  ],
+            if (selectionMode && isSelected)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(
+                    color: AppTheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.check, size: 16, color: Colors.white),
                 ),
               ),
-            ),
           ],
         ),
       ),
     );
   }
 
-  Widget get _placeholderIcon {
-    IconData icon;
-    switch (ex.category) {
-      case 'warmup':
-        icon = Icons.whatshot;
-        break;
+  IconData _placeholderIconFor(String category) {
+    switch (category) {
       case 'cardio':
-        icon = Icons.directions_run;
-        break;
-      case 'flexibility':
-        icon = Icons.self_improvement;
-        break;
+        return Icons.favorite;
       default:
-        icon = Icons.fitness_center;
+        return Icons.fitness_center;
     }
-    return Center(
-      child: Icon(icon, size: 40, color: AppTheme.darkGrey),
-    );
+  }
+
+  Color _placeholderColorFor(String category) {
+    switch (category) {
+      case 'cardio':
+        return AppTheme.error;
+      default:
+        return AppTheme.secondary;
+    }
   }
 }

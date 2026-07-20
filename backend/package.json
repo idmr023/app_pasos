@@ -7,7 +7,7 @@
     "start": "node server.js",
     "dev": "node server.js",
     "seed": "node seed.js",
-    "sync-exercises": "node sync-workoutx.js"
+    "seed-quotes": "node seed-quotes.js"
   },
   "keywords": [],
   "author": "",

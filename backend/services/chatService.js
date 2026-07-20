@@ -1,6 +1,5 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const CircuitBreaker = require('opossum');
-const Exercise = require('../models/Exercise');
 const Workout = require('../models/Workout');
 const Routine = require('../models/Routine');
 const PersonalRecord = require('../models/PersonalRecord');
@@ -9,12 +8,10 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const CHAT_MODEL = 'models/gemini-2.5-flash';
 const MAX_HISTORY = 20;
-const CACHE_TTL_MS = 3600 * 1000; // 1 hora
+const CACHE_TTL_MS = 3600 * 1000;
 
-// Caché en memoria: pregunta → { response, timestamp }
 const _responseCache = new Map();
 
-// Circuit breaker para Gemini
 const geminiBreaker = new CircuitBreaker(async ({ model, history, systemPrompt, lastMessage }) => {
   const chat = model.startChat({
     history,
@@ -53,7 +50,6 @@ function _setCache(text, response) {
   _responseCache.set(key, { response, timestamp: Date.now() });
 }
 
-// Limpiar caché expirada cada 10 minutos
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of _responseCache) {
@@ -63,67 +59,13 @@ setInterval(() => {
   }
 }, 600000);
 
-function getCategorySpanish(cat) {
-  const map = { warmup: 'Calentamiento', strength: 'Fuerza', cardio: 'Cardio', flexibility: 'Flexibilidad' };
-  return map[cat] || cat;
-}
-
-async function searchExercises(text) {
-  const keywords = text.toLowerCase().split(' ').filter(w => w.length > 2);
-  const categoryMap = {
-    calentamiento: 'warmup', warmup: 'warmup',
-    fuerza: 'strength', strength: 'strength', peso: 'strength', pesas: 'strength',
-    cardio: 'cardio', aerobico: 'cardio', aerobic: 'cardio',
-    flexibilidad: 'flexibility', flexibility: 'flexibility', estiramiento: 'flexibility', estiramientos: 'flexibility',
-    pecho: 'strength', pectoral: 'strength', pectorales: 'strength',
-    espalda: 'strength', dorsal: 'strength',
-    pierna: 'strength', piernas: 'strength', cuadriceps: 'strength', femoral: 'strength', gluteo: 'strength',
-    brazo: 'strength', brazos: 'strength', biceps: 'strength', triceps: 'strength',
-    hombro: 'strength', hombros: 'strength', deltoides: 'strength',
-    abdominales: 'strength', core: 'strength', abdomen: 'strength',
-  };
-
-  let categoryFilter;
-  for (const word of keywords) {
-    if (categoryMap[word]) {
-      categoryFilter = categoryMap[word];
-      break;
-    }
-  }
-
-  const filter = {};
-  if (categoryFilter) filter.category = categoryFilter;
-
-  let exercises;
-  if (text.length > 2) {
-    exercises = await Exercise.find({
-      $or: [
-        { name: { $regex: text, $options: 'i' } },
-        { nameSpanish: { $regex: text, $options: 'i' } },
-        { muscle: { $regex: text, $options: 'i' } },
-        { ...filter }
-      ]
-    }).limit(20).lean();
-  } else {
-    exercises = await Exercise.find(filter).limit(20).lean();
-  }
-
-  if (exercises.length === 0 && !categoryFilter) {
-    exercises = await Exercise.find().limit(10).lean();
-  }
-
-  return exercises.map(e => ({
-    name: e.nameSpanish || e.name,
-    category: getCategorySpanish(e.category),
-    description: e.description || '',
-    muscle: e.muscle || '',
-    equipment: e.equipment || '',
-    difficulty: e.difficulty || '',
-    defaultSets: e.defaultSets,
-    defaultReps: e.defaultReps,
-    restTime: e.restTime,
-  }));
-}
+const goalLabels = {
+  lose_weight: 'Bajar de peso',
+  gain_muscle: 'Ganar músculo',
+  maintain: 'Mantener',
+  endurance: 'Resistencia',
+  general: 'General',
+};
 
 async function buildUserContext(userId) {
   const contextParts = [];
@@ -153,14 +95,14 @@ async function buildUserContext(userId) {
   }
 
   const records = await PersonalRecord.find({ user: userId })
-    .populate('exercise', 'name nameSpanish')
+    .select('exerciseName maxWeightKg')
     .sort({ maxWeightKg: -1 })
     .limit(5)
     .lean();
 
   if (records.length > 0) {
     const prText = records.map(r =>
-      `- ${r.exercise?.nameSpanish || r.exerciseName || 'Ejercicio'}: ${r.maxWeightKg} kg`
+      `- ${r.exerciseName || 'Ejercicio'}: ${r.maxWeightKg} kg`
     ).join('\n');
     contextParts.push(`MARCAS PERSONALES:\n${prText}`);
   }
@@ -168,59 +110,57 @@ async function buildUserContext(userId) {
   return contextParts.join('\n\n');
 }
 
-function buildSystemPrompt(user, exerciseCatalog, userContext) {
+function buildSystemPrompt(user, userContext) {
   const levelTitles = ['Novato', 'Principiante', 'Aprendiz', 'Intermedio', 'Avanzado', 'Experto', 'Élite', 'Master', 'Leyenda', 'Titán'];
+  const hasPhysicalData = user.weight > 0 && user.height > 0;
 
-  return `Eres "Coach IA", un entrenador fitness virtual dentro de la app "App Pasos". Tu personalidad es motivadora, enérgica, informativa y profesional. Respondes SIEMPRE en español de forma clara y concisa.
+  let prompt = `Eres "Coach IA", un entrenador fitness virtual dentro de la app "App Pasos". Tu personalidad es motivadora, enérgica, informativa y profesional. Respondes SIEMPRE en español de forma clara y concisa.
 
 NORMAS FUNDAMENTALES:
-1. SOLO recomiendas ejercicios del catálogo proporcionado abajo. NUNCA inventes ejercicios ni recomiendes ejercicios que no estén en la lista.
-2. Si el usuario pregunta por un ejercicio que no está en el catálogo, sé honesto y dile que no está disponible en la app, pero sugiere alternativas del catálogo.
-3. Usa los datos del usuario para personalizar tus recomendaciones (nivel, racha, entrenamientos recientes).
-4. Puedes sugerir cómo combinar ejercicios del catálogo en rutinas.
-5. Si te preguntan algo fuera del ámbito fitness, redirige amablemente al tema de entrenamiento.
-6. Sé breve y directo. No des respuestas extensas a menos que el usuario pida más detalles.
-7. Cuando sugieras ejercicios, incluye series, repeticiones y descanso sugerido basado en los valores por defecto.
+1. Usas tu conocimiento global sobre ejercicios, deporte y nutrición para dar recomendaciones. NO estás limitado a un catálogo local.
+2. Si el usuario te pregunta algo fuera del ámbito fitness, redirige amablemente al tema de entrenamiento.
+3. Sé motivador pero realista. No prometas resultados irreales.
+4. Adapta el nivel de detalle a lo que el usuario pida: sé breve si no pide más, extenso si lo solicita.
 
 DATOS DEL USUARIO:
 - Usuario: ${user.displayName || user.username}
 - Nivel: ${user.level} (${levelTitles[Math.min(user.level, levelTitles.length - 1)] || 'Novato'})
 - XP total: ${user.xp || 0}
-- Título actual: ${user.title || 'Ninguno'}
+- Título actual: ${user.title || 'Ninguno'}`;
 
-${userContext ? `CONTEXTO DEL USUARIO:\n${userContext}\n` : ''}
+  if (hasPhysicalData) {
+    prompt += `\n- Peso: ${user.weight} kg
+- Altura: ${user.height} cm
+- Meta: ${goalLabels[user.goal] || 'General'}`;
+  } else {
+    prompt += `\n\n⚠️ IMPORTANTE: El usuario aún no ha registrado su peso, altura ni meta fitness. En tu PRIMER mensaje (si el historial está vacío o es el inicio de la conversación), saluda y PREGÚNTALE amablemente por su peso, altura y meta fitness (bajar de peso, ganar músculo, mantener, resistencia, o general) para poder personalizar mejor sus recomendaciones. NO des recomendaciones genéricas extensas sin antes conocer sus datos.`;
+  }
 
-CATÁLOGO DE EJERCICIOS DISPONIBLES (${exerciseCatalog.length} ejercicios):
-${exerciseCatalog.map((e, i) =>
-  `${i + 1}. ${e.name} [${e.category}]${e.muscle ? ` - Músculo: ${e.muscle}` : ''}${e.difficulty ? ` - Dificultad: ${e.difficulty}` : ''}${e.equipment ? ` - Equipo: ${e.equipment}` : ''}${e.description ? ` | ${e.description}` : ''} (Series: ${e.defaultSets || 3}, Reps: ${e.defaultReps || '10'}, Descanso: ${e.restTime || 60}s)`
-).join('\n')}
+  prompt += `\n\nPERSONALIZACIÓN:
+- Usa los datos del usuario (nivel, racha, entrenamientos recientes, rutinas, marcas personales) para adaptar cada recomendación.
+- Si conoces su peso, altura y meta, úsalos para calcular IMC si es relevante y ajustar intensidad/recomendaciones.
+- Pregunta por equipo disponible, días de entrenamiento, lesiones, etc. para refinar aún más.`;
 
-RECOMENDACIONES POR DEFECTO:
-- Calentamiento: 5-10 min antes de entrenar, ejercicios de baja intensidad.
-- Fuerza: 3-4 series de 8-12 repeticiones, 60-90s de descanso.
-- Cardio: 15-30 min, 30-60s de descanso entre ejercicios.
-- Flexibilidad: Al final del entrenamiento, mantener estiramientos 15-30s.`;
+  if (userContext) {
+    prompt += `\n\nCONTEXTO DEL USUARIO:\n${userContext}`;
+  }
+
+  return prompt;
 }
 
 async function getCoachResponse(user, messages) {
   const lastMessage = messages[messages.length - 1]?.content || '';
-  const cacheKey = lastMessage.trim();
+  const cacheKey = '${user._id}:${lastMessage.trim()}';
 
-  // Caché exacta: responder sin llamar a Gemini
   const cached = _checkCache(cacheKey);
   if (cached) return cached;
 
-  // Circuito abierto: devolver fallback sin intentar
   if (geminiBreaker.opened) {
     return 'El asistente está procesando muchas solicitudes. Intenta en un minuto.';
   }
 
-  const [exercises, userContext] = await Promise.all([
-    searchExercises(lastMessage),
-    buildUserContext(user._id),
-  ]);
-
-  const systemPrompt = buildSystemPrompt(user, exercises, userContext);
+  const userContext = await buildUserContext(user._id);
+  const systemPrompt = buildSystemPrompt(user, userContext);
 
   const model = genAI.getGenerativeModel({ model: CHAT_MODEL });
 
@@ -231,17 +171,14 @@ async function getCoachResponse(user, messages) {
 
   try {
     const reply = await geminiBreaker.fire({ model, history, systemPrompt, lastMessage });
-    // Cachear respuestas de más de 10 caracteres
     if (reply && reply.length >= 10) {
-      _setCache(cacheKey, reply);
+      _setCache(lastMessage.trim(), reply);
     }
     return reply;
   } catch (err) {
-    // Si el breaker devolvió fallback, ese mensaje ya es la respuesta
     if (geminiBreaker.opened) {
       return 'El asistente está procesando muchas solicitudes. Intenta en un minuto.';
     }
-    // 429 detectado explícitamente
     if (err.status === 429 || (err.message && err.message.includes('429'))) {
       return 'El asistente está procesando muchas solicitudes. Intenta en un minuto.';
     }

@@ -2,9 +2,12 @@ const mongoose = require('mongoose');
 
 const routineExerciseSchema = new mongoose.Schema({
   exercise: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Exercise',
+    type: String,
     required: true
+  },
+  exerciseName: {
+    type: String,
+    default: ''
   },
   sets: {
     type: Number,
@@ -45,5 +48,6 @@ const routineSchema = new mongoose.Schema({
 });
 
 routineSchema.index({ user: 1, createdAt: -1 });
+routineSchema.index({ user: 1, name: 1 }, { unique: true });
 
 module.exports = mongoose.model('Routine', routineSchema);
