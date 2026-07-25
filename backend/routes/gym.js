@@ -103,7 +103,7 @@ function transformWgerExercise(wgerEx) {
 
 router.get('/exercises', auth, async (req, res) => {
   try {
-    const { search, category, limit = 20, offset = 0 } = req.query;
+    const { search, category, limit = 20, offset = 0, excludeWarmup } = req.query;
     const lim = Math.min(parseInt(limit) || 20, 100);
     const off = parseInt(offset) || 0;
 
@@ -112,7 +112,11 @@ router.get('/exercises', auth, async (req, res) => {
 
     if (useLocal) {
       const filter = {};
-      if (category) filter.category = category;
+      if (category) {
+        filter.category = category;
+      } else if (excludeWarmup === 'true') {
+        filter.category = { $ne: 'warmup' };
+      }
       if (search) {
         const terms = search.trim().split(/\s+/).filter(Boolean);
         if (terms.length === 1) {
@@ -134,15 +138,31 @@ router.get('/exercises', auth, async (req, res) => {
         }
       }
 
-      const localExercises = await Exercise.find(filter)
-        .sort({ name: 1, _id: 1 })
-        .skip(off)
-        .limit(lim);
+      const pipeline = [
+        { $match: filter },
+        { $sort: { name: 1, nameSpanish: -1, imageUrl: -1, description: -1 } },
+        { $group: {
+          _id: '$name',
+          doc: { $first: '$$ROOT' },
+        }},
+        { $replaceRoot: { newRoot: '$doc' } },
+        { $skip: off },
+        { $limit: lim },
+      ];
+      const localExercises = await Exercise.aggregate(pipeline);
 
-      if (localExercises.length > 0) {
+      const totalPipeline = [
+        { $match: filter },
+        { $group: { _id: '$name', count: { $sum: 1 } } },
+        { $count: 'total' },
+      ];
+      const totalResult = await Exercise.aggregate(totalPipeline);
+      const total = totalResult[0]?.total || 0;
+
+      if (localExercises.length > 0 || total > 0) {
         return res.json({
           exercises: localExercises.map(exerciseToResponse),
-          total: await Exercise.countDocuments(filter),
+          total,
         });
       }
 

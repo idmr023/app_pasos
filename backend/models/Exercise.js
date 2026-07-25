@@ -22,7 +22,7 @@ const exerciseSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    enum: ['strength', 'cardio'],
+    enum: ['strength', 'cardio', 'warmup', 'flexibility'],
     default: 'strength'
   },
   bodyPart: {

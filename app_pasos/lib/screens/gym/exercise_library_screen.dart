@@ -242,25 +242,9 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
     );
   }
 
-  static const _warmupExercises = {
-    'Rotación de Cuello', 'Círculos de Brazos', 'Torsión de Torso',
-    'Estocadas Dinámicas', 'Saltos de Tijera', 'Rodillas al Pecho',
-    'Saltos de Cuerda', 'High Knees', 'Montañista', 'Saltos de Sentadilla',
-    'Estiramiento de Isquiotibiales', 'Estiramiento de Cuádriceps',
-    'Estiramiento de Hombros', 'Estiramiento de Pecho', 'Flexión de Torso',
-    'Estiramiento de Espalda', 'Mariposa', 'Plancha Asimétrica',
-    'Círculos de Cadera', 'Rotación de Tobillos', 'Apertura de Pecho',
-    'Estiramiento de Cadera en 90/90', 'Estiramiento de Psoas',
-    'Estiramiento de Gemelos', 'Flexión Lateral de Torso',
-    'Estiramiento de Abductores', 'Estiramiento de Glúteos',
-    'Rotación de Columna Supina', 'Saltos de Caja',
-    'Saltos de Talón a Glúteo', 'Sprints en el Lugar', 'Escalador Cruzado',
-    'Sentadilla Profunda con Pausa',
-  };
-
   Widget _buildGrid(GymProvider gym) {
     final exercises = gym.exercises.where(
-      (e) => !_warmupExercises.contains(e.displayName),
+      (e) => e.category != 'warmup',
     ).toList();
     if (exercises.isEmpty) {
       return Center(

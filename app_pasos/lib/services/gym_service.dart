@@ -22,6 +22,7 @@ class GymService {
     };
     if (category != null) queryParams['category'] = category;
     if (search != null && search.isNotEmpty) queryParams['search'] = search;
+    if (category == null) queryParams['excludeWarmup'] = 'true';
 
     final uri = Uri.parse('${ApiConfig.baseUrl}/gym/exercises')
         .replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
