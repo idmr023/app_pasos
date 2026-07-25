@@ -9,6 +9,7 @@ class GymProvider extends ChangeNotifier {
   List<Exercise> _exercises = [];
   bool _hasMore = true;
   bool _isLoading = false;
+  int _offset = 0;
 
   List<Routine> _routines = [];
   int _streak = 0;
@@ -37,13 +38,14 @@ class GymProvider extends ChangeNotifier {
     _service = GymService(token);
   }
 
-  Future<void> loadExercises({String? category, String? search, int limit = 20, int offset = 0, bool reset = false}) async {
+  Future<void> loadExercises({String? category, String? search, int limit = 20, bool reset = false}) async {
     if (_service == null) return;
     if (_isLoading) return;
     if (!reset && !_hasMore) return;
 
     if (reset) {
       _exercises = [];
+      _offset = 0;
       _hasMore = true;
     }
 
@@ -51,24 +53,28 @@ class GymProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final data = await _service!.getExercises(category: category, search: search, limit: limit, offset: offset);
+      final data = await _service!.getExercises(category: category, search: search, limit: limit, offset: _offset);
       final list = (data['exercises'] as List)
           .map((e) => Exercise.fromJson(e))
           .toList();
-      _exercises.addAll(list);
+      final existingIds = _exercises.map((e) => e.id).toSet();
+      _exercises.addAll(list.where((e) => !existingIds.contains(e.id)));
       _hasMore = list.length >= limit;
+      _offset = _exercises.length;
       _isLoading = false;
       notifyListeners();
     } catch (e) {
       if (_exercises.isEmpty) {
         await Future.delayed(const Duration(seconds: 3));
         try {
-          final data = await _service!.getExercises(category: category, search: search, limit: limit, offset: offset);
+          final data = await _service!.getExercises(category: category, search: search, limit: limit, offset: _offset);
           final list = (data['exercises'] as List)
               .map((e) => Exercise.fromJson(e))
               .toList();
-          _exercises.addAll(list);
+          final existingIds = _exercises.map((e) => e.id).toSet();
+          _exercises.addAll(list.where((e) => !existingIds.contains(e.id)));
           _hasMore = list.length >= limit;
+          _offset = _exercises.length;
           _isLoading = false;
           notifyListeners();
           return;

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import '../../config/theme.dart';
 import '../../models/exercise.dart';
 import '../../widgets/glass_card.dart';
-import '../../widgets/exercise_image.dart';
 
 class ExerciseDetailSheet extends StatefulWidget {
   final Exercise exercise;
@@ -165,25 +165,34 @@ class _ExerciseDetailSheetState extends State<ExerciseDetailSheet> {
         borderRadius: BorderRadius.circular(20),
         color: AppTheme.surface.withValues(alpha: 0.3),
       ),
-      child: ExerciseImage(
-        exercise: ex,
-        fit: BoxFit.contain,
-        width: double.infinity,
-        height: 220,
-        borderRadius: BorderRadius.circular(20),
-        fallbackIcon: _placeholderIconFor(ex.category),
-        fallbackColor: AppTheme.darkGrey,
-      ),
+      child: ex.imageUrl.isNotEmpty
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: CachedNetworkImage(
+                imageUrl: ex.imageUrl,
+                fit: BoxFit.contain,
+                placeholder: (_, __) => Center(
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppTheme.primary.withValues(alpha: 0.3),
+                  ),
+                ),
+                errorWidget: (_, __, ___) => _buildImagePlaceholder(ex.category),
+              ),
+            )
+          : _buildImagePlaceholder(ex.category),
     );
   }
 
-  IconData _placeholderIconFor(String category) {
+  Widget _buildImagePlaceholder(String category) {
+    IconData icon;
     switch (category) {
-      case 'warmup': return Icons.whatshot;
-      case 'cardio': return Icons.directions_run;
-      case 'flexibility': return Icons.self_improvement;
-      default: return Icons.fitness_center;
+      case 'warmup': icon = Icons.whatshot; break;
+      case 'cardio': icon = Icons.directions_run; break;
+      case 'flexibility': icon = Icons.self_improvement; break;
+      default: icon = Icons.fitness_center;
     }
+    return Center(child: Icon(icon, size: 64, color: AppTheme.darkGrey));
   }
 
   Widget _buildHeader(Exercise ex) {

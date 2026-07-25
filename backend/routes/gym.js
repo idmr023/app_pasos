@@ -7,6 +7,7 @@ const Workout = require('../models/Workout');
 const PersonalRecord = require('../models/PersonalRecord');
 const Quote = require('../models/Quote');
 const User = require('../models/User');
+const Exercise = require('../models/Exercise');
 
 dns.setServers(['8.8.8.8', '1.1.1.1']);
 
@@ -26,6 +27,34 @@ const WGER_CAT_MAP = {
 };
 
 const router = express.Router();
+
+function exerciseToResponse(ex) {
+  const extUrl = ex.gifUrl || ex.imageUrl || '';
+  const hasLocal = ex.localImage != null && (
+    Buffer.isBuffer(ex.localImage) ? ex.localImage.length > 0 :
+    typeof ex.localImage === 'object' && ex.localImage.buffer != null
+  );
+  const imgId = ex.externalId || ex._id;
+  const localUrl = extUrl || !hasLocal || !imgId ? '' : `/api/gym/exercise-image/${imgId}`;
+  const imageUrl = extUrl || localUrl || (ex.imageUrl || '');
+  return {
+    id: ex.externalId || String(ex._id || ''),
+    name: ex.name,
+    nameSpanish: ex.nameSpanish || ex.name,
+    category: ex.category,
+    imageUrl,
+    hasImage: !!(extUrl || localUrl || ex.imageUrl),
+    defaultSets: ex.defaultSets,
+    defaultReps: ex.defaultReps,
+    restTime: ex.restTime,
+    description: ex.description || (ex.instructions || []).join(' '),
+    descriptionSpanish: ex.descriptionSpanish || (ex.instructionsSpanish || []).join(' '),
+    videoUrl: '',
+    muscle: ex.target || ex.bodyPart || '',
+    equipment: ex.equipment || '',
+    difficulty: '',
+  };
+}
 
 function fetchJson(url, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
@@ -74,10 +103,57 @@ function transformWgerExercise(wgerEx) {
 
 router.get('/exercises', auth, async (req, res) => {
   try {
-    const { search, category, limit, offset } = req.query;
+    const { search, category, limit = 20, offset = 0 } = req.query;
+    const lim = Math.min(parseInt(limit) || 20, 100);
+    const off = parseInt(offset) || 0;
+
+    const localCount = await Exercise.countDocuments();
+    const useLocal = localCount > 0;
+
+    if (useLocal) {
+      const filter = {};
+      if (category) filter.category = category;
+      if (search) {
+        const terms = search.trim().split(/\s+/).filter(Boolean);
+        if (terms.length === 1) {
+          const escaped = terms[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          filter.$or = [
+            { name: { $regex: `\\b${escaped}`, $options: 'i' } },
+            { nameSpanish: { $regex: `\\b${escaped}`, $options: 'i' } },
+          ];
+        } else if (terms.length > 1) {
+          filter.$and = terms.map(t => {
+            const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return {
+              $or: [
+                { name: { $regex: `\\b${escaped}`, $options: 'i' } },
+                { nameSpanish: { $regex: `\\b${escaped}`, $options: 'i' } },
+              ],
+            };
+          });
+        }
+      }
+
+      const localExercises = await Exercise.find(filter)
+        .sort({ name: 1, _id: 1 })
+        .skip(off)
+        .limit(lim);
+
+      if (localExercises.length > 0) {
+        return res.json({
+          exercises: localExercises.map(exerciseToResponse),
+          total: await Exercise.countDocuments(filter),
+        });
+      }
+
+      if (!search) {
+        return res.json({ exercises: [], total: 0 });
+      }
+    }
+
     const params = new URLSearchParams();
-    params.set('limit', limit || '20');
-    params.set('offset', offset || '0');
+    params.set('limit', lim.toString());
+    params.set('offset', off.toString());
     if (search) params.set('search', search);
     if (category && CATEGORY_IDS[category]) params.set('category', CATEGORY_IDS[category]);
 
@@ -90,10 +166,72 @@ router.get('/exercises', auth, async (req, res) => {
   }
 });
 
+router.get('/exercise-image/:id', auth, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+    const ex = isObjectId
+      ? await Exercise.findById(id).select('localImage localImageMime')
+      : await Exercise.findOne({ externalId: id }).select('localImage localImageMime');
+    if (!ex || !ex.localImage) {
+      return res.status(404).json({ error: 'Imagen no encontrada' });
+    }
+    const buf = Buffer.isBuffer(ex.localImage) ? ex.localImage : Buffer.from(ex.localImage.buffer);
+    if (buf.length === 0) {
+      return res.status(404).json({ error: 'Imagen vacía' });
+    }
+    res.set('Content-Type', ex.localImageMime || 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=31536000');
+    res.send(buf);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener imagen' });
+  }
+});
+
+router.post('/exercise-image/:id', auth, async (req, res) => {
+  try {
+    const { image, mime } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: 'Imagen requerida (base64)' });
+    }
+    const buf = Buffer.from(image, 'base64');
+    if (buf.length < 100) {
+      return res.status(400).json({ error: 'Imagen muy pequeña' });
+    }
+    const ex = await Exercise.findOneAndUpdate(
+      { externalId: req.params.id },
+      { $set: { localImage: buf, localImageMime: mime || 'image/jpeg' } },
+      { new: true }
+    );
+    if (!ex) return res.status(404).json({ error: 'Ejercicio no encontrado' });
+    res.json({ success: true, size: buf.length });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al guardar imagen' });
+  }
+});
+
 router.get('/exercises/:id', auth, async (req, res) => {
   try {
-    const wgerId = req.params.id.replace('wger_', '');
-    const data = await fetchJson(`${WGER_BASE}/exerciseinfo/${wgerId}/`);
+    const id = req.params.id;
+
+    if (id.startsWith('exercisedb_')) {
+      const ex = await Exercise.findOne({ externalId: id });
+      if (!ex) return res.status(404).json({ error: 'Ejercicio no encontrado' });
+      return res.json({ exercise: exerciseToResponse(ex) });
+    }
+
+    if (id.startsWith('wger_')) {
+      const wgerId = id.replace('wger_', '');
+      const data = await fetchJson(`${WGER_BASE}/exerciseinfo/${wgerId}/`);
+      const exercise = transformWgerExercise(data);
+      if (!exercise.name) return res.status(404).json({ error: 'Ejercicio no encontrado' });
+      return res.json({ exercise });
+    }
+
+    const ex = await Exercise.findOne({ externalId: id });
+    if (ex) return res.json({ exercise: exerciseToResponse(ex) });
+
+    const data = await fetchJson(`${WGER_BASE}/exerciseinfo/${id}/`);
     const exercise = transformWgerExercise(data);
     if (!exercise.name) return res.status(404).json({ error: 'Ejercicio no encontrado' });
     res.json({ exercise });

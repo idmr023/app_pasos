@@ -176,3 +176,122 @@ Extrae el ID numérico del formato `"wger_123"` y llama a `exerciseinfo/{id}/`.
 - Búsqueda: wger busca server-side en nombres y descripciones
 - Debounce de 300ms en el buscador (sin cambios)
 - MongoDB ya no almacena ejercicios → base de datos más liviana, conexiones más rápidas
+
+---
+
+# Cambio: wger.de proxy → ExerciseDB + wger fallback
+
+## Fecha
+2026-07-21
+
+## Motivación
+- wger.de solo tiene imagen para ~31% de los 844 ejercicios
+- GIPHY API como fallback de imágenes no funcionó: las búsquedas devolvían GIFs irrelevantes (cachetadas, chistes)
+- **ExerciseDB (RapidAPI)** tiene ~1,300 ejercicios con **GIFs animados reales** del ejercicio
+- Free tier de RapidAPI: 100 requests/día. Como el seed hace **10 paginaciones** (`limit=130`), alcanza para una sola corrida
+- Después del seed, **nada más habla con RapidAPI** — todo vive en MongoDB
+
+## Qué cambió
+
+### Antes
+```
+Flutter App → Backend (proxy) → wger.de API (en vivo)
+```
+- Backend proxy a wger en cada request de ejercicios
+- `imageUrl` = foto estática JPEG de wger (31% cobertura)
+- Sin GIFs animados
+
+### Después
+```
+Seed (1 sola vez):
+  ExerciseDB (RapidAPI, 10 requests) → traduce con MyMemory → MongoDB: Exercise collection
+
+Runtime:
+  Flutter App → Backend → MongoDB.find() (ExerciseDB data, GIFs animados)
+                            ↓ fallback
+                           wger.de proxy (para los no cubiertos por ExerciseDB)
+```
+
+### Modelo `Exercise` en MongoDB
+
+```js
+{
+  externalId: 'exercisedb_001',  // primary key, indexed
+  source: 'exercisedb' | 'wger',
+  name: 'Push Up',
+  nameSpanish: 'Flexión de brazos',  // traducido con MyMemory
+  category: 'strength' | 'cardio',
+  bodyPart: 'chest',         // ExerciseDB
+  target: 'pectorals',       // ExerciseDB
+  equipment: 'body weight',  // ExerciseDB
+  gifUrl: 'https://...gif',  // ✅ ExerciseDB GIF (primary)
+  imageUrl: '',              // wger static image (fallback)
+  instructions: ['Step 1...', 'Step 2...'],         // en inglés
+  instructionsSpanish: ['Paso 1...', 'Paso 2...'],  // traducido
+  description: '...',
+  descriptionSpanish: '...',
+  defaultSets: 3,
+  defaultReps: '10',
+  restTime: 60
+}
+```
+
+### Backend
+
+- `backend/models/Exercise.js` — Schema unificado ExerciseDB + wger
+- `backend/seed-exercisedb.js` — Script de seed (10 paginaciones, traduce con MyMemory)
+- `backend/routes/gym.js` — `GET /exercises`:
+  1. Si hay documentos en `Exercise`, busca en MongoDB
+  2. Si no hay resultados y no hay búsqueda → fallback a wger.de
+  3. Si no hay datos en MongoDB en absoluto → wger.de directo
+- `GET /exercises/:id`:
+  - `exercisedb_*` → MongoDB
+  - `wger_*` → wger.de proxy
+  - sin prefijo → busca en MongoDB, fallback a wger
+- Helper `exerciseToResponse()` mapea MongoDB Exercise → JSON para Flutter (incluye `gifUrl || imageUrl` como `imageUrl`)
+
+### Flutter
+
+- **Eliminado**: `lib/services/giphy_service.dart` y `lib/widgets/exercise_image.dart`
+- `Exercise` model: **sin cambios** — el backend ahora sirve GIFs en el campo `imageUrl`
+- `CachedNetworkImage` ahora muestra GIFs animados directamente (soporte nativo en Flutter)
+- Pantallas: `exercise_library_screen.dart` y `exercise_detail_sheet.dart` vuelven a `CachedNetworkImage` directo con placeholder
+
+## Cobertura
+
+| Fuente | GIF/Imagen | % |
+|---|---|---|
+| ExerciseDB GIF animado | ✅ Real, animado, demostrativo | ~95% de los 1,300 ejercicios seedeados |
+| wger.de fallback | 📷 Foto estática | ~31% (de los 844 de wger, los que ExerciseDB no cubre) |
+| Placeholder | 🚫 Icono de categoría | <5% |
+
+## Cómo ejecutar el seed
+
+1. Crear cuenta en https://rapidapi.com/ y subscribirse a **ExerciseDB** (free tier)
+2. Copiar la API key de RapidAPI
+3. Ejecutar:
+   ```bash
+   cd backend
+   RAPIDAPI_KEY=tu_key_aqui npm run seed-exercisedb
+   ```
+4. Esperar ~5-10 min (1,300 ejercicios × traducción MyMemory con delay 250ms = ~5min de traducción)
+5. Reiniciar el backend: `npm start`
+
+## Verificación
+
+```bash
+# Backend debe tener ejercicios seedeados
+mongo> db.exercises.countDocuments()
+# Esperado: 1300
+
+# Endpoint de prueba
+curl -H "Authorization: Bearer TOKEN" http://localhost:3000/api/gym/exercises?limit=5
+# Esperado: 5 ejercicios con gifUrl poblado
+```
+
+## Decisiones de diseño
+
+- **MyMemory en seed, no en runtime**: traduce una sola vez, no en cada request. Rate limit de MyMemory (1000/día) no es problema
+- **GIF como `imageUrl`**: el campo `imageUrl` del backend ahora entrega GIF cuando viene de ExerciseDB, foto cuando viene de wger. Flutter no necesita saber de dónde viene
+- **wger como fallback secundario**: mantiene cobertura de ~5-10% de ejercicios que ExerciseDB no tiene
+- **Sin re-importación runtime**: después del seed inicial, no se vuelve a llamar a ExerciseDB ni a wger en cada request. La fuente de verdad es MongoDB

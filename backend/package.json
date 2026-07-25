@@ -7,7 +7,12 @@
     "start": "node server.js",
     "dev": "node server.js",
     "seed": "node seed.js",
-    "seed-quotes": "node seed-quotes.js"
+    "seed-quotes": "node seed-quotes.js",
+    "seed-exercises": "node seed-exercisedb.js",
+    "seed-famous": "node seed-famous-exercises.js",
+    "seed-images": "node seed-images.js",
+    "seed-enhance": "node seed-enhance.js",
+    "seed-manual": "node seed-manual-images.js"
   },
   "keywords": [],
   "author": "",

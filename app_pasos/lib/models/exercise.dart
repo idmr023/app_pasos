@@ -4,6 +4,7 @@ class Exercise {
   final String nameSpanish;
   final String category;
   final String imageUrl;
+  final bool hasImage;
   final int defaultSets;
   final String defaultReps;
   final int restTime;
@@ -23,6 +24,7 @@ class Exercise {
     required this.category,
     this.nameSpanish = '',
     this.imageUrl = '',
+    this.hasImage = false,
     this.defaultSets = 3,
     this.defaultReps = '10',
     this.restTime = 60,
@@ -41,6 +43,7 @@ class Exercise {
       nameSpanish: json['nameSpanish'] ?? '',
       category: json['category'] ?? 'strength',
       imageUrl: json['imageUrl'] ?? '',
+      hasImage: json['hasImage'] == true || (json['imageUrl']?.toString().isNotEmpty == true),
       defaultSets: json['defaultSets'] ?? 3,
       defaultReps: json['defaultReps']?.toString() ?? '10',
       restTime: json['restTime'] ?? 60,
@@ -59,6 +62,7 @@ class Exercise {
     'nameSpanish': nameSpanish,
     'category': category,
     'imageUrl': imageUrl,
+    'hasImage': hasImage,
     'defaultSets': defaultSets,
     'defaultReps': defaultReps,
     'restTime': restTime,

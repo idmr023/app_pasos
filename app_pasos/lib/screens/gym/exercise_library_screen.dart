@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../config/theme.dart';
 import '../../providers/gym_provider.dart';
 import '../../models/exercise.dart';
 import '../../widgets/glass_card.dart';
-import '../../widgets/exercise_image.dart';
 import 'exercise_detail_sheet.dart';
 
 class ExerciseLibraryScreen extends StatefulWidget {
@@ -55,6 +55,7 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
         gym.loadExercises(
           category: _selectedCategory,
           search: _searchQuery.isNotEmpty ? _searchQuery : null,
+          reset: false,
         );
       }
     }
@@ -170,45 +171,43 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
   }
 
   Widget _buildCategoryFilter() {
-    return Container(
-      height: 44,
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        children: _categories.map((cat) {
-          final isSelected = _selectedCategory == cat['key'];
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: GestureDetector(
-              onTap: () {
-                setState(() => _selectedCategory = cat['key']);
-                context.read<GymProvider>().loadExercises(
-                  category: cat['key'],
-                  search: _searchQuery.isNotEmpty ? _searchQuery : null,
-                  reset: true,
-                );
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: isSelected ? AppTheme.primary.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: isSelected ? AppTheme.primary.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.06),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(
+        children: [
+          for (final cat in _categories)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: GestureDetector(
+                onTap: () {
+                  setState(() => _selectedCategory = cat['key']);
+                  context.read<GymProvider>().loadExercises(
+                    category: cat['key'],
+                    search: _searchQuery.isNotEmpty ? _searchQuery : null,
+                    reset: true,
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: cat['key'] == _selectedCategory ? AppTheme.primary.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: cat['key'] == _selectedCategory ? AppTheme.primary.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.06),
+                    ),
                   ),
-                ),
-                child: Text(
-                  cat['label'] as String,
-                  style: TextStyle(
-                    color: isSelected ? AppTheme.primary : AppTheme.grey,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                    fontSize: 13,
+                  child: Text(
+                    cat['label'] as String,
+                    style: TextStyle(
+                      color: cat['key'] == _selectedCategory ? AppTheme.primary : AppTheme.grey,
+                      fontWeight: cat['key'] == _selectedCategory ? FontWeight.w700 : FontWeight.w500,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
               ),
             ),
-          );
-        }).toList(),
+        ],
       ),
     );
   }
@@ -243,8 +242,26 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
     );
   }
 
+  static const _warmupExercises = {
+    'Rotación de Cuello', 'Círculos de Brazos', 'Torsión de Torso',
+    'Estocadas Dinámicas', 'Saltos de Tijera', 'Rodillas al Pecho',
+    'Saltos de Cuerda', 'High Knees', 'Montañista', 'Saltos de Sentadilla',
+    'Estiramiento de Isquiotibiales', 'Estiramiento de Cuádriceps',
+    'Estiramiento de Hombros', 'Estiramiento de Pecho', 'Flexión de Torso',
+    'Estiramiento de Espalda', 'Mariposa', 'Plancha Asimétrica',
+    'Círculos de Cadera', 'Rotación de Tobillos', 'Apertura de Pecho',
+    'Estiramiento de Cadera en 90/90', 'Estiramiento de Psoas',
+    'Estiramiento de Gemelos', 'Flexión Lateral de Torso',
+    'Estiramiento de Abductores', 'Estiramiento de Glúteos',
+    'Rotación de Columna Supina', 'Saltos de Caja',
+    'Saltos de Talón a Glúteo', 'Sprints en el Lugar', 'Escalador Cruzado',
+    'Sentadilla Profunda con Pausa',
+  };
+
   Widget _buildGrid(GymProvider gym) {
-    final exercises = gym.exercises;
+    final exercises = gym.exercises.where(
+      (e) => !_warmupExercises.contains(e.displayName),
+    ).toList();
     if (exercises.isEmpty) {
       return Center(
         child: Column(
@@ -300,31 +317,92 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
     );
   }
 
+  void _addWarmupByName(List<String> names) {
+    final gym = context.read<GymProvider>();
+    setState(() {
+      for (final name in names) {
+        final matches = gym.exercises.where(
+          (e) => e.displayName.toLowerCase().contains(name.toLowerCase()),
+        );
+        if (matches.isNotEmpty) _selected.add(matches.first.id);
+      }
+    });
+  }
+
   Widget _buildSelectionBar() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       decoration: BoxDecoration(
         border: Border(
           top: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
         ),
       ),
       child: SafeArea(
-        child: SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: _selected.isEmpty
-                ? null
-                : () => Navigator.pop(context, _selected.toList()),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.primary,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 40,
+                    child: ElevatedButton.icon(
+                      onPressed: () => _addWarmupByName([
+                        'Elevaciones laterales', 'Rotación de muñecas',
+                        'Brazos cruzados', 'Estiramiento de brazos',
+                      ]),
+                      icon: const Icon(Icons.rotate_left, size: 16),
+                      label: const Text('BRAZOS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFE94560),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SizedBox(
+                    height: 40,
+                    child: ElevatedButton.icon(
+                      onPressed: () => _addWarmupByName([
+                        'Estocadas Dinámicas', 'Saltos de Tijera',
+                        'Rodillas al Pecho', 'Saltos de Cuerda',
+                      ]),
+                      icon: const Icon(Icons.directions_run, size: 16),
+                      label: const Text('PIERNAS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF00BFA5),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            child: Text(
-              'SELECCIONAR (${_selected.length})',
-              style: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _selected.isEmpty
+                    ? null
+                    : () => Navigator.pop(context, _selected.toList()),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                child: Text(
+                  'SELECCIONAR (${_selected.length})',
+                  style: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1),
+                ),
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -357,13 +435,20 @@ class _ExerciseCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: ExerciseImage(
-                    exercise: ex,
-                    fit: BoxFit.cover,
-                    width: double.infinity,
+                  child: ClipRRect(
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                    fallbackIcon: _placeholderIconFor(ex.category),
-                    fallbackColor: _placeholderColorFor(ex.category),
+                    child: ex.imageUrl.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: ex.imageUrl,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            placeholder: (_, __) => Container(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                            ),
+                            errorWidget: (_, __, ___) => _categoryPlaceholder(ex.category),
+                          )
+                        : _categoryPlaceholder(ex.category),
                   ),
                 ),
                 Padding(
@@ -406,21 +491,23 @@ class _ExerciseCard extends StatelessWidget {
     );
   }
 
-  IconData _placeholderIconFor(String category) {
+  Widget _categoryPlaceholder(String category) {
+    IconData icon;
+    Color color;
     switch (category) {
       case 'cardio':
-        return Icons.favorite;
+        icon = Icons.favorite;
+        color = AppTheme.error;
+        break;
       default:
-        return Icons.fitness_center;
+        icon = Icons.fitness_center;
+        color = AppTheme.secondary;
     }
-  }
-
-  Color _placeholderColorFor(String category) {
-    switch (category) {
-      case 'cardio':
-        return AppTheme.error;
-      default:
-        return AppTheme.secondary;
-    }
+    return Container(
+      color: color.withValues(alpha: 0.1),
+      child: Center(
+        child: Icon(icon, size: 48, color: color.withValues(alpha: 0.5)),
+      ),
+    );
   }
 }

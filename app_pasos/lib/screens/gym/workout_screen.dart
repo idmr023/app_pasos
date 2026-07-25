@@ -290,7 +290,9 @@ class _WorkoutScreenState extends State<WorkoutScreen>
   }
 
   Widget _buildExerciseImage(RoutineExercise ex) {
-    final imageUrl = '';
+    final gym = context.read<GymProvider>();
+    final matched = gym.exercises.where((e) => e.id == ex.exerciseId);
+    final imageUrl = matched.isNotEmpty ? matched.first.imageUrl : '';
     return Container(
       width: double.infinity,
       height: 200,

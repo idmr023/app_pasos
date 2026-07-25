@@ -3,6 +3,7 @@ const CircuitBreaker = require('opossum');
 const Workout = require('../models/Workout');
 const Routine = require('../models/Routine');
 const PersonalRecord = require('../models/PersonalRecord');
+const Exercise = require('../models/Exercise');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -107,6 +108,24 @@ async function buildUserContext(userId) {
     contextParts.push(`MARCAS PERSONALES:\n${prText}`);
   }
 
+  const ejercicios = await Exercise.find()
+    .select('name nameSpanish category bodyPart equipment')
+    .limit(40)
+    .lean();
+
+  if (ejercicios.length > 0) {
+    const catMap = {};
+    for (const ex of ejercicios) {
+      const cat = ex.category || 'strength';
+      if (!catMap[cat]) catMap[cat] = [];
+      catMap[cat].push(ex.nameSpanish || ex.name);
+    }
+    const catText = Object.entries(catMap)
+      .map(([cat, names]) => `  ${cat}: ${names.slice(0, 10).join(', ')}${names.length > 10 ? `... (+${names.length - 10} más)` : ''}`)
+      .join('\n');
+    contextParts.push(`CATÁLOGO DE EJERCICIOS DISPONIBLES (${ejercicios.length} en total):\n${catText}`);
+  }
+
   return contextParts.join('\n\n');
 }
 
@@ -117,10 +136,11 @@ function buildSystemPrompt(user, userContext) {
   let prompt = `Eres "Coach IA", un entrenador fitness virtual dentro de la app "App Pasos". Tu personalidad es motivadora, enérgica, informativa y profesional. Respondes SIEMPRE en español de forma clara y concisa.
 
 NORMAS FUNDAMENTALES:
-1. Usas tu conocimiento global sobre ejercicios, deporte y nutrición para dar recomendaciones. NO estás limitado a un catálogo local.
-2. Si el usuario te pregunta algo fuera del ámbito fitness, redirige amablemente al tema de entrenamiento.
-3. Sé motivador pero realista. No prometas resultados irreales.
-4. Adapta el nivel de detalle a lo que el usuario pida: sé breve si no pide más, extenso si lo solicita.
+1. Usas tu conocimiento global sobre ejercicios, deporte y nutrición, pero SIEMPRE que sea posible, basa tus recomendaciones en los ejercicios del CATÁLOGO DE EJERCICIOS DISPONIBLES incluido en el contexto.
+2. Si el usuario pregunta por un ejercicio específico, revísalo primero en el catálogo. Si existe en la BD, menciónalo por su nombre en español y usa sus datos (categoría, grupo muscular, equipo). Si el usuario pregunta por un ejercicio que NO está en el catálogo, indícale que no está disponible actualmente y sugiere alternativas similares del catálogo.
+3. Si el usuario te pregunta algo fuera del ámbito fitness, redirige amablemente al tema de entrenamiento.
+4. Sé motivador pero realista. No prometas resultados irreales.
+5. Adapta el nivel de detalle a lo que el usuario pida: sé breve si no pide más, extenso si lo solicita.
 
 DATOS DEL USUARIO:
 - Usuario: ${user.displayName || user.username}
@@ -148,9 +168,35 @@ DATOS DEL USUARIO:
   return prompt;
 }
 
+async function searchExercises(query) {
+  if (!query || query.trim().length < 2) return [];
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  try {
+    const filter = {
+      $or: terms.map(t => {
+        const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return {
+          $or: [
+            { name: { $regex: escaped, $options: 'i' } },
+            { nameSpanish: { $regex: escaped, $options: 'i' } },
+            { category: { $regex: escaped, $options: 'i' } },
+            { bodyPart: { $regex: escaped, $options: 'i' } },
+          ],
+        };
+      }),
+    };
+    return await Exercise.find(filter)
+      .select('name nameSpanish category bodyPart equipment description')
+      .limit(8)
+      .lean();
+  } catch (_) {
+    return [];
+  }
+}
+
 async function getCoachResponse(user, messages) {
   const lastMessage = messages[messages.length - 1]?.content || '';
-  const cacheKey = '${user._id}:${lastMessage.trim()}';
+  const cacheKey = `${user._id}:${lastMessage.trim()}`;
 
   const cached = _checkCache(cacheKey);
   if (cached) return cached;
@@ -160,7 +206,18 @@ async function getCoachResponse(user, messages) {
   }
 
   const userContext = await buildUserContext(user._id);
-  const systemPrompt = buildSystemPrompt(user, userContext);
+
+  const relevantExercises = await searchExercises(lastMessage);
+  let exerciseContext = '';
+  if (relevantExercises.length > 0) {
+    exerciseContext = '\n\nEJERCICIOS RELEVANTES A LA CONSULTA:\n' +
+      relevantExercises.map(ex =>
+        `- ${ex.nameSpanish || ex.name} (${ex.category || ''} | ${ex.bodyPart || ''} | ${ex.equipment || 'sin equipo'})`
+      ).join('\n');
+  }
+
+  const combinedContext = userContext + exerciseContext;
+  const systemPrompt = buildSystemPrompt(user, combinedContext);
 
   const model = genAI.getGenerativeModel({ model: CHAT_MODEL });
 
