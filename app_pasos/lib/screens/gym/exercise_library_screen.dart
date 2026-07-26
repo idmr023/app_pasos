@@ -244,7 +244,7 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
 
   Widget _buildGrid(GymProvider gym) {
     final exercises = gym.exercises.where(
-      (e) => e.category != 'warmup',
+      (e) => e.category != 'warmup' && e.hasImage,
     ).toList();
     if (exercises.isEmpty) {
       return Center(

@@ -111,44 +111,50 @@ router.get('/exercises', auth, async (req, res) => {
     const useLocal = localCount > 0;
 
     if (useLocal) {
-      const filter = {};
-      if (category) {
-        filter.category = category;
-      } else if (excludeWarmup === 'true') {
-        filter.category = { $ne: 'warmup' };
-      }
-
-      filter.$and = [
-        { localImageMime: { $ne: 'image/svg+xml' } },
-        { $or: [
-          { gifUrl: { $ne: '' } },
-          { imageUrl: { $ne: '' } },
-          { localImage: { $exists: true, $ne: null } },
-        ]},
+      const andClauses = [
+        {
+          $or: [
+            { gifUrl: { $ne: '' } },
+            { imageUrl: { $ne: '' } },
+            { localImage: { $exists: true, $ne: null } },
+          ],
+        },
+        {
+          $or: [
+            { localImageMime: { $ne: 'image/svg+xml' } },
+            { localImageMime: { $exists: false } },
+            { localImageMime: '' },
+          ],
+        },
       ];
-
+      if (category) {
+        andClauses.push({ category });
+      } else if (excludeWarmup === 'true') {
+        andClauses.push({ category: { $ne: 'warmup' } });
+      }
       if (search) {
         const terms = search.trim().split(/\s+/).filter(Boolean);
         if (terms.length === 1) {
           const escaped = terms[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          filter.$and.push({
+          andClauses.push({
             $or: [
               { name: { $regex: `\\b${escaped}`, $options: 'i' } },
               { nameSpanish: { $regex: `\\b${escaped}`, $options: 'i' } },
             ],
           });
         } else if (terms.length > 1) {
-          for (const t of terms) {
+          andClauses.push(...terms.map(t => {
             const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            filter.$and.push({
+            return {
               $or: [
                 { name: { $regex: `\\b${escaped}`, $options: 'i' } },
                 { nameSpanish: { $regex: `\\b${escaped}`, $options: 'i' } },
               ],
-            });
-          }
+            };
+          }));
         }
       }
+      const filter = { $and: andClauses };
 
       const pipeline = [
         { $match: filter },
