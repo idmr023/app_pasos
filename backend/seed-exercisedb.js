@@ -100,6 +100,15 @@ async function seed() {
       continue;
     }
 
+    const normalizedName = (ex.name || '').toLowerCase().trim();
+    const existingByName = await Exercise.findOne({
+      name: { $regex: `^${normalizedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' }
+    });
+    if (existingByName) {
+      totalSkipped++;
+      continue;
+    }
+
     try {
       const nameSpanish = await translateWithMyMemory(ex.name);
       await sleep(TRANSLATE_DELAY_MS);

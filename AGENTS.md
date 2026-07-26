@@ -25,6 +25,7 @@ BottomNavigationBar con 4 tabs (IndexedStack, todos vivos en memoria):
 cd backend && npm run dev              # Iniciar servidor (puerto 3000)
 cd backend && npm run seed             # Poblar DB con usuarios + 27 ejercicios predefinidos
 cd backend && npm run sync-exercises   # Sincronizar 1327+ ejercicios desde WorkoutX API (manual)
+cd backend && npm run dedup-exercises  # Eliminar ejercicios duplicados y actualizar referencias
 
 # Flutter (Android - dispositivo físico)
 cd app_pasos

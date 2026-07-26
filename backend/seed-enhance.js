@@ -301,7 +301,8 @@ async function processImages() {
     gifUrl: { $in: ['', null] },
     $or: [
       { imageUrl: { $in: ['', null] } },
-      { imageUrl: { $not: /wikimedia\.org/ } },
+      { imageUrl: /wikimedia\.org/ },
+      { imageUrl: /upload\.wikimedia/ },
     ],
     $or: [
       { localImage: null },
@@ -333,13 +334,17 @@ async function processImages() {
 
   const exercises = await Exercise.find({
     gifUrl: { $in: ['', null] },
-    imageUrl: { $in: ['', null] },
+    $or: [
+      { imageUrl: { $in: ['', null] } },
+      { imageUrl: /wikimedia\.org/ },
+      { imageUrl: /upload\.wikimedia/ },
+    ],
     $or: [
       { localImage: null },
       { localImage: { $exists: false } },
       { localImageMime: 'image/svg+xml' },
     ],
-  }).limit(200).lean();
+  }).limit(500).lean();
 
   console.log(`Procesando ${exercises.length} ejercicios...\n`);
 

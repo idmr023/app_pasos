@@ -134,6 +134,13 @@ async function seed() {
       ],
     });
 
+    if (!existing) {
+      const normalizedName = famous.nameEn.toLowerCase().trim();
+      existing = await Exercise.findOne({
+        name: { $regex: `^${normalizedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' }
+      });
+    }
+
     let imageUrl = existing?.imageUrl || existing?.gifUrl || '';
     let nameSpanish = existing?.nameSpanish || '';
     let descriptionSpanish = existing?.descriptionSpanish || '';

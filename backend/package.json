@@ -13,7 +13,8 @@
     "seed-images": "node seed-images.js",
     "seed-enhance": "node seed-enhance.js",
     "seed-manual": "node seed-manual-images.js",
-    "seed-categorize": "node seed-categorize.js"
+    "seed-categorize": "node seed-categorize.js",
+    "dedup-exercises": "node scripts/dedup-exercises.js"
   },
   "keywords": [],
   "author": "",

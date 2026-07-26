@@ -117,24 +117,36 @@ router.get('/exercises', auth, async (req, res) => {
       } else if (excludeWarmup === 'true') {
         filter.category = { $ne: 'warmup' };
       }
+
+      filter.$and = [
+        { localImageMime: { $ne: 'image/svg+xml' } },
+        { $or: [
+          { gifUrl: { $ne: '' } },
+          { imageUrl: { $ne: '' } },
+          { localImage: { $exists: true, $ne: null } },
+        ]},
+      ];
+
       if (search) {
         const terms = search.trim().split(/\s+/).filter(Boolean);
         if (terms.length === 1) {
           const escaped = terms[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          filter.$or = [
-            { name: { $regex: `\\b${escaped}`, $options: 'i' } },
-            { nameSpanish: { $regex: `\\b${escaped}`, $options: 'i' } },
-          ];
+          filter.$and.push({
+            $or: [
+              { name: { $regex: `\\b${escaped}`, $options: 'i' } },
+              { nameSpanish: { $regex: `\\b${escaped}`, $options: 'i' } },
+            ],
+          });
         } else if (terms.length > 1) {
-          filter.$and = terms.map(t => {
+          for (const t of terms) {
             const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            return {
+            filter.$and.push({
               $or: [
                 { name: { $regex: `\\b${escaped}`, $options: 'i' } },
                 { nameSpanish: { $regex: `\\b${escaped}`, $options: 'i' } },
               ],
-            };
-          });
+            });
+          }
         }
       }
 
