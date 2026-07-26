@@ -126,6 +126,13 @@ router.get('/exercises', auth, async (req, res) => {
             { localImageMime: '' },
           ],
         },
+        {
+          $or: [
+            { imageUrl: { $not: /wikimedia\.org/ } },
+            { imageUrl: '' },
+            { imageUrl: { $exists: false } },
+          ],
+        },
       ];
       if (category) {
         andClauses.push({ category });
