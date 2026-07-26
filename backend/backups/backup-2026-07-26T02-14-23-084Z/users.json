@@ -1,0 +1,98 @@
+[
+  {
+    "_id": "6a543203bdf31be89506d403",
+    "username": "admin",
+    "password": "$2b$10$QC8rsCv2h0YCeHV9QlWijOSCaCy1TeoyrEA4TXpkrk4YwT8CTIfq2",
+    "displayName": "Admin",
+    "role": "admin",
+    "avatar": "crown",
+    "createdAt": "2026-07-13T00:32:03.488Z",
+    "updatedAt": "2026-07-13T00:32:03.488Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a543203bdf31be89506d404",
+    "username": "test",
+    "password": "$2b$10$Lvc3U4fy255CnTvvZYS.ru5A1eFgrmvJnKrNSZyjntlB1tXSnURzy",
+    "displayName": "Usuario de Prueba",
+    "role": "user",
+    "avatar": "runner",
+    "createdAt": "2026-07-13T00:32:03.742Z",
+    "updatedAt": "2026-07-13T00:32:03.742Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a543204bdf31be89506d405",
+    "username": "carlos",
+    "password": "$2b$10$ao9HXMTC7IBHpbkZsiIa1OIgdp/qKlUMmhcGPYTK.eWArfCetGiwS",
+    "displayName": "Carlos",
+    "role": "user",
+    "avatar": "fire",
+    "createdAt": "2026-07-13T00:32:04.003Z",
+    "updatedAt": "2026-07-13T00:32:04.003Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a543204bdf31be89506d406",
+    "username": "maria",
+    "password": "$2b$10$p6ULYjrL9ZDOXAR6IN40TOg7x07UYc9dVC1HMYz0nvmNs5Cx1beSK",
+    "displayName": "María",
+    "role": "user",
+    "avatar": "star",
+    "createdAt": "2026-07-13T00:32:04.256Z",
+    "updatedAt": "2026-07-13T00:32:04.256Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a545d68e005208c36d8a5b2",
+    "username": "idmr",
+    "password": "$2b$10$lWIuofXV5aSwWaRPdqbPY.tJ0Nx05TSBbDtpa8lt5t9/HwkTAl6xm",
+    "displayName": "Ivan Manrique",
+    "role": "user",
+    "avatar": "runner",
+    "createdAt": "2026-07-13T03:37:12.399Z",
+    "updatedAt": "2026-07-16T22:06:43.344Z",
+    "__v": 0,
+    "level": 2,
+    "title": "",
+    "xp": 4597
+  },
+  {
+    "_id": "6a54f80a9c759e455f0642a0",
+    "username": "test123",
+    "password": "$2a$10$IysfVU6O/nSbUz1BnmqHT.g2oMA3Q95g6SiUz7rq29lbhnLWQKSrq",
+    "displayName": "Test",
+    "role": "user",
+    "avatar": "runner",
+    "createdAt": "2026-07-13T14:36:58.919Z",
+    "updatedAt": "2026-07-13T14:36:58.919Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a551994b7a7cbb29fc90cfd",
+    "username": "brendiux",
+    "password": "$2a$10$NRv61.rwy4EUET0GFcjEaOI1faAIwupQyA8OPGa2IDPkLI53/p4fi",
+    "displayName": "Brenda",
+    "role": "user",
+    "avatar": "star",
+    "createdAt": "2026-07-13T17:00:04.558Z",
+    "updatedAt": "2026-07-16T16:35:46.037Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a5ab525d06594b98d7f7e3c",
+    "username": "ivan",
+    "password": "$2a$10$cJNlKtpEZTXcb9Jbx/6mx.xdGUy5WwLjGFv5z//Nh4MSTogC2LNKG",
+    "displayName": "Ivan Manrique",
+    "role": "user",
+    "avatar": "crown",
+    "xp": 0,
+    "level": 0,
+    "title": "",
+    "securityQuestion": "",
+    "securityAnswer": "",
+    "createdAt": "2026-07-17T23:05:09.636Z",
+    "updatedAt": "2026-07-17T23:05:09.636Z",
+    "__v": 0
+  }
+]

@@ -1,0 +1,35 @@
+[
+  {
+    "_id": "6a5bf70a199828e267b26908",
+    "user": "6a545d68e005208c36d8a5b2",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Locura total",
+        "timestamp": "2026-07-18T21:58:34.487Z",
+        "_id": "6a5bf70a199828e267b26909"
+      },
+      {
+        "role": "assistant",
+        "content": "¡Absolutamente, Ivan! ¡Esa es la energía que me gusta ver! 💪\n\n¿Estás listo para convertir esa \"locura total\" en una sesión de entrenamiento increíble? Dime, ¿qué te gustaría trabajar hoy o en qué puedo ayudarte? ¡Vamos a darle!",
+        "timestamp": "2026-07-18T21:58:36.979Z",
+        "_id": "6a5bf70c199828e267b2690e"
+      },
+      {
+        "role": "user",
+        "content": "Si, necesito que me ayudes a hacer una rutina para poder ganar resistencia",
+        "timestamp": "2026-07-18T22:01:04.388Z",
+        "_id": "6a5bf7a0199828e267b26914"
+      },
+      {
+        "role": "assistant",
+        "content": "¡Excelente, Ivan! ¡Construir resistencia es clave para tu progreso como Aprendiz! 💪\n\nPara ganar resistencia, te sugiero una rutina enfocada en el cardio y la capacidad pulmonar. Aquí tienes una propuesta:\n\n**Rutina de Resistencia para Ivan (Nivel Aprendiz):**\n\n**1. Calentamiento (5 minutos):**\n*   **Rotación de Cuello:** 1 serie, 10 repeticiones, 15s de descanso.\n*   **Círculos de Brazos:** 1 serie, 10 repeticiones, 15s de descanso.\n*   **Estocadas Dinámicas:** 1 serie, 8 repeticiones por pierna, 20s de descanso.\n\n**2. Rutina Principal (Enfocada en Resistencia):**\n*   **Saltos de Cuerda:** 3 series, 60 segundos, 30s de descanso.\n*   **High Knees (Rodillas al Pecho en el lugar):** 3 series, 30 segundos, 30s de descanso.\n*   **Montañista:** 3 series, 30 segundos, 30s de descanso.\n*   **Burpees:** 3 series, 10 repeticiones, 45s de descanso.\n\n¡Esta combinación te ayudará a mejorar tu capacidad cardiovascular y tu resistencia general! ¿Qué te parece? ¡Vamos a por ello!",
+        "timestamp": "2026-07-18T22:01:09.650Z",
+        "_id": "6a5bf7a5199828e267b26919"
+      }
+    ],
+    "createdAt": "2026-07-18T21:58:37.077Z",
+    "updatedAt": "2026-07-18T22:01:09.652Z",
+    "__v": 1
+  }
+]

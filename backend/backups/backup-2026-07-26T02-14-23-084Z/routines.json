@@ -1,0 +1,99 @@
+[
+  {
+    "_id": "6a5a8057ef6909266d93b458",
+    "user": "6a545d68e005208c36d8a5b2",
+    "name": "esta",
+    "exercises": [
+      {
+        "exercise": "6a5953ed0d2ea498d7a53c1a",
+        "sets": 3,
+        "reps": "10",
+        "restTime": 45,
+        "order": 0,
+        "_id": "6a5a8057ef6909266d93b459"
+      },
+      {
+        "exercise": "6a5953ee0d2ea498d7a53c20",
+        "sets": 3,
+        "reps": "30s",
+        "restTime": 30,
+        "order": 1,
+        "_id": "6a5a8057ef6909266d93b45a"
+      },
+      {
+        "exercise": "6a5953ee0d2ea498d7a53c1d",
+        "sets": 3,
+        "reps": "60s",
+        "restTime": 30,
+        "order": 2,
+        "_id": "6a5a8057ef6909266d93b45b"
+      },
+      {
+        "exercise": "6a5953ee0d2ea498d7a53c23",
+        "sets": 3,
+        "reps": "30s",
+        "restTime": 30,
+        "order": 3,
+        "_id": "6a5a8057ef6909266d93b45c"
+      }
+    ],
+    "isWarmup": false,
+    "createdAt": "2026-07-17T19:19:51.114Z",
+    "updatedAt": "2026-07-17T19:19:51.114Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a5ea74294fdd22c12ef0c87",
+    "user": "6a545d68e005208c36d8a5b2",
+    "name": "papu",
+    "exercises": [
+      {
+        "exercise": "6a5ab72ebb1b8a6ca40a12e5",
+        "sets": 1,
+        "reps": "12",
+        "restTime": 59,
+        "order": 0,
+        "_id": "6a5ea74294fdd22c12ef0c88"
+      },
+      {
+        "exercise": "6a5b7e12bac40e09b45049b4",
+        "sets": 1,
+        "reps": "12",
+        "restTime": 59,
+        "order": 1,
+        "_id": "6a5ea74294fdd22c12ef0c89"
+      }
+    ],
+    "isWarmup": false,
+    "createdAt": "2026-07-20T22:54:58.092Z",
+    "updatedAt": "2026-07-20T22:54:58.092Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a5ea74394fdd22c12ef0c95",
+    "user": "6a545d68e005208c36d8a5b2",
+    "name": "papu",
+    "exercises": [
+      {
+        "exercise": "6a5ab72ebb1b8a6ca40a12e5",
+        "sets": 1,
+        "reps": "12",
+        "restTime": 59,
+        "order": 0,
+        "_id": "6a5ea74394fdd22c12ef0c96"
+      },
+      {
+        "exercise": "6a5b7e12bac40e09b45049b4",
+        "sets": 1,
+        "reps": "12",
+        "restTime": 59,
+        "order": 1,
+        "_id": "6a5ea74394fdd22c12ef0c97"
+      }
+    ],
+    "isWarmup": false,
+    "createdAt": "2026-07-20T22:54:59.880Z",
+    "updatedAt": "2026-07-20T22:54:59.880Z",
+    "__v": 0
+  }
+]

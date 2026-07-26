@@ -1,0 +1,82 @@
+[
+  {
+    "_id": "6a551a7eb7a7cbb29fc90d98",
+    "user": "6a551994b7a7cbb29fc90cfd",
+    "challenge": "6a551868b7a7cbb29fc90cca",
+    "date": "2026-07-13T00:00:00.000Z",
+    "steps": 2628,
+    "createdAt": "2026-07-13T17:03:58.812Z",
+    "updatedAt": "2026-07-14T18:06:59.697Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a551a7fb7a7cbb29fc90da9",
+    "user": "6a545d68e005208c36d8a5b2",
+    "challenge": "6a551868b7a7cbb29fc90cca",
+    "date": "2026-07-12T00:00:00.000Z",
+    "steps": 24000,
+    "createdAt": "2026-07-13T17:03:59.858Z",
+    "updatedAt": "2026-07-13T17:03:59.858Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a551e91b7a7cbb29fc90e0b",
+    "user": "6a551994b7a7cbb29fc90cfd",
+    "challenge": "6a551868b7a7cbb29fc90cca",
+    "date": "2026-07-12T00:00:00.000Z",
+    "steps": 14019,
+    "createdAt": "2026-07-13T17:21:21.465Z",
+    "updatedAt": "2026-07-13T17:21:21.465Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a55b0e1c7198a9e758b6931",
+    "user": "6a545d68e005208c36d8a5b2",
+    "challenge": "6a551868b7a7cbb29fc90cca",
+    "date": "2026-07-13T00:00:00.000Z",
+    "steps": 5700,
+    "createdAt": "2026-07-14T03:45:37.975Z",
+    "updatedAt": "2026-07-14T03:45:37.975Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a58f185232a10bab0e30a4a",
+    "user": "6a545d68e005208c36d8a5b2",
+    "challenge": "6a551868b7a7cbb29fc90cca",
+    "date": "2026-07-14T00:00:00.000Z",
+    "steps": 5859,
+    "createdAt": "2026-07-16T14:58:13.936Z",
+    "updatedAt": "2026-07-16T14:58:13.936Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a58f192232a10bab0e30a68",
+    "user": "6a545d68e005208c36d8a5b2",
+    "challenge": "6a551868b7a7cbb29fc90cca",
+    "date": "2026-07-15T00:00:00.000Z",
+    "steps": 10412,
+    "createdAt": "2026-07-16T14:58:26.583Z",
+    "updatedAt": "2026-07-16T14:58:26.583Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a59087236a8fe283c5f900a",
+    "user": "6a551994b7a7cbb29fc90cfd",
+    "challenge": "6a551868b7a7cbb29fc90cca",
+    "date": "2026-07-14T00:00:00.000Z",
+    "steps": 6221,
+    "createdAt": "2026-07-16T16:36:02.710Z",
+    "updatedAt": "2026-07-16T16:36:02.710Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a59088036a8fe283c5f9028",
+    "user": "6a551994b7a7cbb29fc90cfd",
+    "challenge": "6a551868b7a7cbb29fc90cca",
+    "date": "2026-07-15T00:00:00.000Z",
+    "steps": 4742,
+    "createdAt": "2026-07-16T16:36:16.269Z",
+    "updatedAt": "2026-07-16T16:36:16.269Z",
+    "__v": 0
+  }
+]
