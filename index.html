@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title>Shooter</title>
+    <script src="phaser.js"></script>
+    <script src="juego.js"></script>
+    <script src="terminado.js"></script>
+    <script src="principal.js"></script>
+</head>
+
+<style>
+    html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%; /* Garantiza que el alto sea 100% */
+        overflow: hidden; /* Para evitar barras de desplazamiento */
+    }
+    #bloque_juego {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh; /* Ocupa toda la altura de la pantalla */
+    width: 100%; /* Asegura que ocupe todo el ancho */
+    background-size: cover;
+    background-position: center;
+    margin: 0; /* Elimina cualquier margen adicional */
+    padding: 0; /* Elimina cualquier padding adicional */
+    border: 0; /* Asegura que no haya borde */
+}
+</style>
+<body>
+    
+    <div id="bloque_juego"></div>
+
+</body>
+</html>
