@@ -12,6 +12,7 @@ const stepRoutes = require('./routes/steps');
 const xpRoutes = require('./routes/xp');
 const gymRoutes = require('./routes/gym');
 const chatRoutes = require('./routes/chat');
+const routeRoutes = require('./routes/routes');
 
 const app = express();
 
@@ -32,6 +33,7 @@ app.use('/api/steps', stepRoutes);
 app.use('/api/xp', xpRoutes);
 app.use('/api/gym', gymRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/routes', routeRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'App Pasos API funcionando' });

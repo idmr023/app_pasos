@@ -173,7 +173,6 @@ router.get('/strava/callback', async (req, res) => {
   if (error || !code) {
     return res.send('<html><body><h3>Error o acceso denegado en Strava</h3><p>Puedes cerrar esta ventana.</p></body></html>');
   }
-  // We can render a simple page telling the user to return to the app
   res.send(`
     <html>
       <body style="background:#0F0F1E; color:white; font-family:sans-serif; text-align:center; padding-top:50px;">
@@ -183,6 +182,8 @@ router.get('/strava/callback', async (req, res) => {
       </body>
     </html>
   `);
+});
+
 router.get('/strava/auth-url', auth, async (req, res) => {
   const clientId = process.env.STRAVA_CLIENT_ID;
   const redirectUri = process.env.STRAVA_REDIRECT_URI || 'http://localhost:3000/api/routes/strava/callback';
