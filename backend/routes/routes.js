@@ -1,6 +1,8 @@
 const express = require('express');
+const crypto = require('crypto');
 const auth = require('../middleware/auth');
 const Route = require('../models/Route');
+const StravaState = require('../models/StravaState');
 
 const router = express.Router();
 
@@ -168,39 +170,47 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
-router.get('/strava/callback', async (req, res) => {
-  const { code, error } = req.query;
-  if (error || !code) {
-    return res.send('<html><body><h3>Error o acceso denegado en Strava</h3><p>Puedes cerrar esta ventana.</p></body></html>');
-  }
-  res.send(`
-    <html>
-      <body style="background:#0F0F1E; color:white; font-family:sans-serif; text-align:center; padding-top:50px;">
-        <h2>¡Autorización de Strava exitosa!</h2>
-        <p>Cierra esta pestaña y regresa a la aplicación App Pasos.</p>
-        <p style="color:#FC4C02; font-size:12px; margin-top:20px;">Código de autorización recibido: ${code}</p>
-      </body>
-    </html>
-  `);
-});
-
-router.get('/strava/auth-url', auth, async (req, res) => {
+router.post('/strava/init', auth, async (req, res) => {
   const clientId = process.env.STRAVA_CLIENT_ID;
   const redirectUri = process.env.STRAVA_REDIRECT_URI || 'http://localhost:3000/api/routes/strava/callback';
   if (!clientId) {
     return res.status(400).json({ error: 'Strava Client ID no configurado en el servidor' });
   }
-  const url = `https://www.strava.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&approval_prompt=force&scope=read,activity:read_all`;
-  res.json({ url });
+
+  const state = crypto.randomBytes(24).toString('hex');
+
+  await StravaState.create({
+    state,
+    user: req.user._id,
+    connected: false
+  });
+
+  const url = `https://www.strava.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}&approval_prompt=force&scope=read,activity:read_all`;
+
+  res.json({ url, state });
 });
 
-router.post('/strava/connect', auth, async (req, res) => {
-  const axios = require('axios');
-  const { code } = req.body;
-  if (!code) {
-    return res.status(400).json({ error: 'Código de autorización requerido' });
+router.get('/strava/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  if (error || !code || !state) {
+    return res.send(`
+      <html><body style="background:#0F0F1E;color:white;font-family:sans-serif;text-align:center;padding-top:50px;">
+        <h3>Error o acceso denegado en Strava</h3><p>Puedes cerrar esta ventana.</p>
+      </body></html>
+    `);
   }
+
   try {
+    const axios = require('axios');
+    const stravaState = await StravaState.findOne({ state });
+    if (!stravaState) {
+      return res.send(`
+        <html><body style="background:#0F0F1E;color:white;font-family:sans-serif;text-align:center;padding-top:50px;">
+          <h3>Enlace expirado o inválido</h3><p>Vuelve a intentar desde la aplicación.</p>
+        </body></html>
+      `);
+    }
+
     const clientId = process.env.STRAVA_CLIENT_ID;
     const clientSecret = process.env.STRAVA_CLIENT_SECRET;
     const redirectUri = process.env.STRAVA_REDIRECT_URI || 'http://localhost:3000/api/routes/strava/callback';
@@ -208,26 +218,65 @@ router.post('/strava/connect', auth, async (req, res) => {
     const tokenRes = await axios.post('https://www.strava.com/oauth/token', {
       client_id: clientId,
       client_secret: clientSecret,
-      code: code,
+      code,
       grant_type: 'authorization_code'
     });
 
     const data = tokenRes.data;
     if (!data.access_token || !data.refresh_token) {
-      return res.status(400).json({ error: 'Respuesta inválida de Strava' });
+      stravaState.connected = false;
+      await stravaState.save();
+      return res.send(`
+        <html><body style="background:#0F0F1E;color:white;font-family:sans-serif;text-align:center;padding-top:50px;">
+          <h3>Error al conectar</h3><p>Respuesta inválida de Strava. Vuelve a intentar.</p>
+        </body></html>
+      `);
     }
 
-    req.user.strava = {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token,
-      expiresAt: data.expires_at,
-      athleteId: data.athlete?.id || null
-    };
-    await req.user.save();
+    const User = require('../models/User');
+    const user = await User.findById(stravaState.user);
+    if (user) {
+      user.strava = {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        expiresAt: data.expires_at,
+        athleteId: data.athlete?.id || null
+      };
+      await user.save();
+    }
 
-    res.json({ success: true });
+    stravaState.connected = true;
+    await stravaState.save();
+
+    res.send(`
+      <html>
+        <head><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+        <body style="background:#0F0F1E;color:white;font-family:sans-serif;text-align:center;padding:40px 20px;">
+          <h2 style="color:#FC4C02;">¡Conectado con éxito!</h2>
+          <p>Ya puedes volver a la aplicación App Pasos.</p>
+          <p style="font-size:13px;color:rgba(255,255,255,0.5);">Esta ventana se cerrará automáticamente...</p>
+          <script>setTimeout(() => window.close(), 3000);</script>
+        </body>
+      </html>
+    `);
   } catch (err) {
-    res.status(500).json({ error: 'Error al conectar con Strava', message: err.response?.data?.message || err.message });
+    res.send(`
+      <html><body style="background:#0F0F1E;color:white;font-family:sans-serif;text-align:center;padding-top:50px;">
+        <h3>Error al conectar con Strava</h3><p>${err.response?.data?.message || err.message}</p>
+      </body></html>
+    `);
+  }
+});
+
+router.get('/strava/status/:state', auth, async (req, res) => {
+  try {
+    const stravaState = await StravaState.findOne({ state: req.params.state, user: req.user._id });
+    if (!stravaState) {
+      return res.json({ connected: false, expired: true });
+    }
+    res.json({ connected: stravaState.connected, expired: false });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al verificar estado' });
   }
 });
 

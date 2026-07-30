@@ -64,11 +64,11 @@ class RouteProvider with ChangeNotifier {
     }
   }
 
-  Future<String?> getStravaAuthUrl() async {
+  Future<Map<String, dynamic>?> initStravaConnection() async {
     if (_token == null) return null;
     try {
       final service = RouteService(_token!);
-      return await service.getStravaAuthUrl();
+      return await service.initStravaConnection();
     } catch (e) {
       _error = e.toString().replaceAll('Exception: ', '');
       notifyListeners();
@@ -76,18 +76,17 @@ class RouteProvider with ChangeNotifier {
     }
   }
 
-  Future<bool> connectStrava(String code) async {
+  Future<bool> checkStravaStatus(String state) async {
     if (_token == null) return false;
     try {
       final service = RouteService(_token!);
-      await service.connectStrava(code);
-      return true;
+      final result = await service.checkStravaStatus(state);
+      return result['connected'] == true;
     } catch (e) {
-      _error = e.toString().replaceAll('Exception: ', '');
-      notifyListeners();
       return false;
     }
   }
+
   Future<int> syncStrava() async {
     if (_token == null) return 0;
     try {

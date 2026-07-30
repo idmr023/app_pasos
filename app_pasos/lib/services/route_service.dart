@@ -84,9 +84,9 @@ class RouteService {
     }
   }
 
-  Future<String> getStravaAuthUrl() async {
-    final response = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/routes/strava/auth-url'),
+  Future<Map<String, dynamic>> initStravaConnection() async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/routes/strava/init'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
@@ -95,26 +95,21 @@ class RouteService {
 
     final data = _parseJson(response);
     if (response.statusCode != 200) {
-      throw Exception(data['error'] ?? 'Error al obtener URL de Strava');
+      throw Exception(data['error'] ?? 'Error al iniciar conexión con Strava');
     }
-    return data['url'];
+    return data;
   }
 
-  Future<bool> connectStrava(String code) async {
-    final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/routes/strava/connect'),
+  Future<Map<String, dynamic>> checkStravaStatus(String state) async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/routes/strava/status/$state'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
-      body: jsonEncode({'code': code}),
     ).timeout(ApiConfig.timeout);
 
-    final data = _parseJson(response);
-    if (response.statusCode != 200) {
-      throw Exception(data['error'] ?? 'Error al conectar con Strava');
-    }
-    return true;
+    return _parseJson(response);
   }
 
   Future<int> syncStravaActivities() async {
