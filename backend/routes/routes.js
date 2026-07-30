@@ -170,6 +170,88 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
+const MAPBOX_STYLES = {
+  cyberpunk: 'dark-v11',
+  titan: 'dark-v11',
+  encuadre: 'light-v11',
+  caligrafia: 'light-v11',
+  semanal: 'dark-v11',
+  split: 'streets-v12',
+  dashboard: 'dark-v11',
+  pulse: 'satellite-streets-v12',
+  minimal: 'light-v11',
+  cinematic: 'satellite-streets-v12'
+};
+
+const MAPBOX_LINE_COLORS = {
+  cyberpunk: '00D4FF',
+  titan: 'FFFFFF',
+  encuadre: '3B82F6',
+  caligrafia: '1A1A2E',
+  semanal: '6366F1',
+  split: 'F97316',
+  dashboard: '06B6D4',
+  pulse: 'EF4444',
+  minimal: 'A1A1AA',
+  cinematic: 'EAB308'
+};
+
+router.get('/:id/map-card', auth, async (req, res) => {
+  try {
+    const route = await Route.findOne({ _id: req.params.id, user: req.user._id });
+    if (!route) return res.status(404).json({ error: 'Ruta no encontrada' });
+
+    const template = req.query.template || 'cyberpunk';
+    const width = Math.min(parseInt(req.query.width) || 1080, 4096);
+    const height = Math.min(parseInt(req.query.height) || 1350, 4096);
+    const mapboxToken = process.env.MAPBOX_ACCESS_TOKEN;
+
+    if (!mapboxToken) {
+      return res.status(400).json({ error: 'Mapbox token no configurado en el servidor' });
+    }
+
+    if (route.coordinates.length < 2) {
+      return res.status(400).json({ error: 'La ruta necesita al menos 2 coordenadas' });
+    }
+
+    const style = MAPBOX_STYLES[template] || 'dark-v11';
+    const lineColor = MAPBOX_LINE_COLORS[template] || '00D4FF';
+
+    const coords = route.coordinates.map(c => [c.lng, c.lat]);
+
+    const geojson = {
+      type: 'Feature',
+      properties: {},
+      geometry: {
+        type: 'LineString',
+        coordinates: coords
+      }
+    };
+
+    const encoded = encodeURIComponent(JSON.stringify(geojson));
+
+    const url = `https://api.mapbox.com/styles/v1/mapbox/${style}/static/geojson(${encoded})/auto/${width}x${height}@2x?padding=40&access_token=${mapboxToken}`;
+
+    const stats = {
+      title: route.title,
+      distance: route.distance,
+      duration: route.duration,
+      elevationGain: route.elevationGain,
+      averagePace: route.averagePace,
+      averageHeartRate: route.averageHeartRate,
+      maxHeartRate: route.maxHeartRate,
+      calories: route.calories,
+      activityType: route.activityType,
+      startDate: route.startDate,
+      source: route.source
+    };
+
+    res.json({ url, stats, template, width, height });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al generar card', message: error.message });
+  }
+});
+
 router.post('/strava/init', auth, async (req, res) => {
   const clientId = process.env.STRAVA_CLIENT_ID;
   const redirectUri = process.env.STRAVA_REDIRECT_URI || 'http://localhost:3000/api/routes/strava/callback';

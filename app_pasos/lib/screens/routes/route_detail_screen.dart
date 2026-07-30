@@ -4,6 +4,7 @@ import '../../config/theme.dart';
 import '../../models/route.dart';
 import '../../providers/route_provider.dart';
 import '../../widgets/glass_card.dart';
+import '../share_aura/share_aura_screen.dart';
 
 class RouteDetailScreen extends StatelessWidget {
   final UserRoute route;
@@ -104,6 +105,25 @@ class RouteDetailScreen extends StatelessWidget {
                         ],
                       ),
                     ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => ShareAuraScreen(routeId: route.id)),
+                      );
+                    },
+                    icon: const Icon(Icons.auto_awesome, color: Colors.white),
+                    label: const Text('✨ Share Aura', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, letterSpacing: 1)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00D4FF),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 24),
