@@ -213,6 +213,10 @@ router.post('/strava/connect', auth, async (req, res) => {
     });
 
     const data = tokenRes.data;
+    if (!data.access_token || !data.refresh_token) {
+      return res.status(400).json({ error: 'Respuesta inválida de Strava' });
+    }
+
     req.user.strava = {
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
@@ -223,11 +227,24 @@ router.post('/strava/connect', auth, async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: 'Error al conectar con Strava', message: err.message });
+    res.status(500).json({ error: 'Error al conectar con Strava', message: err.response?.data?.message || err.message });
   }
 });
-        client_id: clientId,
-        client_secret: clientSecret,
+
+router.post('/strava/sync', auth, async (req, res) => {
+  const axios = require('axios');
+  try {
+    const user = req.user;
+    if (!user.strava || !user.strava.accessToken) {
+      return res.status(400).json({ error: 'Strava no está conectado' });
+    }
+
+    let token = user.strava.accessToken;
+
+    if (Date.now() / 1000 > user.strava.expiresAt) {
+      const refreshRes = await axios.post('https://www.strava.com/oauth/token', {
+        client_id: process.env.STRAVA_CLIENT_ID,
+        client_secret: process.env.STRAVA_CLIENT_SECRET,
         grant_type: 'refresh_token',
         refresh_token: user.strava.refreshToken
       });
@@ -287,7 +304,7 @@ router.post('/strava/connect', auth, async (req, res) => {
 
     res.json({ success: true, count: importedCount });
   } catch (error) {
-    res.status(500).json({ error: 'Error al sincronizar con Strava', message: error.message });
+    res.status(500).json({ error: 'Error al sincronizar con Strava', message: error.response?.data?.message || error.message });
   }
 });
 
