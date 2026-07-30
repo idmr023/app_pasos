@@ -5,6 +5,7 @@ import '../providers/auth_provider.dart';
 import '../providers/challenge_provider.dart';
 import '../providers/step_provider.dart';
 import '../providers/xp_provider.dart';
+import '../providers/route_provider.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/player_avatar.dart';
 import '../widgets/neon_button.dart';
@@ -44,6 +45,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     context.read<StepProvider>().loadTodaySteps();
     context.read<XpProvider>().setToken(token);
     context.read<XpProvider>().loadXp();
+    context.read<RouteProvider>().setToken(token);
   }
 
   Future<void> _logout() async {
@@ -164,6 +166,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: TabBar(
           controller: _tabController,
+          onTap: (_) => setState(() {}),
           indicator: BoxDecoration(
             color: AppTheme.primary.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(12),
@@ -171,11 +174,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           indicatorSize: TabBarIndicatorSize.tab,
           labelColor: AppTheme.primary,
           unselectedLabelColor: AppTheme.darkGrey,
-          labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-          unselectedLabelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+          unselectedLabelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
           dividerColor: Colors.transparent,
           tabs: const [
-            Tab(text: 'ACTIVOS'),
+            Tab(text: 'RETOS ACTIVOS'),
             Tab(text: 'FINALIZADOS'),
           ],
         ),
@@ -193,7 +196,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               padding: EdgeInsets.all(32),
               child: CircularProgressIndicator(color: AppTheme.primary),
             )
-          else if (!hasChallenges)
+          else if (!hasChallenges && _tabController.index == 0)
             _buildEmptyState()
           else
             _buildChallengeList(),
@@ -201,6 +204,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       ),
     );
   }
+
+
 
   Widget _buildChallengeList() {
     final challengeProv = context.watch<ChallengeProvider>();

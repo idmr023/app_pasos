@@ -42,7 +42,8 @@ router.post('/register', async (req, res) => {
         title: user.title,
         weight: user.weight,
         height: user.height,
-        goal: user.goal
+        goal: user.goal,
+        hasStrava: !!(user.strava && user.strava.accessToken)
       }
     });
   } catch (error) {
@@ -83,7 +84,8 @@ router.post('/login', async (req, res) => {
         title: user.title,
         weight: user.weight,
         height: user.height,
-        goal: user.goal
+        goal: user.goal,
+        hasStrava: !!(user.strava && user.strava.accessToken)
       }
     });
   } catch (error) {
@@ -105,7 +107,8 @@ router.get('/profile', auth, async (req, res) => {
         title: req.user.title,
         weight: req.user.weight,
         height: req.user.height,
-        goal: req.user.goal
+        goal: req.user.goal,
+        hasStrava: !!(req.user.strava && req.user.strava.accessToken)
       }
     });
   } catch (error) {
@@ -168,7 +171,8 @@ router.put('/profile', auth, async (req, res) => {
         title: req.user.title,
         weight: req.user.weight,
         height: req.user.height,
-        goal: req.user.goal
+        goal: req.user.goal,
+        hasStrava: !!(req.user.strava && req.user.strava.accessToken)
       }
     });
   } catch (error) {

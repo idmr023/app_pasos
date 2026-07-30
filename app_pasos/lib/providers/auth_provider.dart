@@ -132,4 +132,27 @@ class AuthProvider extends ChangeNotifier {
     _error = null;
     notifyListeners();
   }
+
+  Future<void> refreshProfile() async {
+    if (_token == null) return;
+    try {
+      final user = await _authService.getProfile(_token!);
+      _user = user;
+      await _storage.write(key: _userKey, value: jsonEncode({
+        'id': _user!.id,
+        'username': _user!.username,
+        'displayName': _user!.displayName,
+        'role': _user!.role,
+        'avatar': _user!.avatar,
+        'xp': _user!.xp,
+        'level': _user!.level,
+        'title': _user!.title,
+        'weight': _user!.weight,
+        'height': _user!.height,
+        'goal': _user!.goal,
+        'hasStrava': _user!.hasStrava,
+      }));
+      notifyListeners();
+    } catch (_) {}
+  }
 }

@@ -168,4 +168,141 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
+router.get('/strava/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) {
+    return res.send('<html><body><h3>Error o acceso denegado en Strava</h3><p>Puedes cerrar esta ventana.</p></body></html>');
+  }
+  // We can render a simple page telling the user to return to the app
+  res.send(`
+    <html>
+      <body style="background:#0F0F1E; color:white; font-family:sans-serif; text-align:center; padding-top:50px;">
+        <h2>¡Autorización de Strava exitosa!</h2>
+        <p>Cierra esta pestaña y regresa a la aplicación App Pasos.</p>
+        <p style="color:#FC4C02; font-size:12px; margin-top:20px;">Código de autorización recibido: ${code}</p>
+      </body>
+    </html>
+  `);
+router.get('/strava/auth-url', auth, async (req, res) => {
+  const clientId = process.env.STRAVA_CLIENT_ID;
+  const redirectUri = process.env.STRAVA_REDIRECT_URI || 'http://localhost:3000/api/routes/strava/callback';
+  if (!clientId) {
+    return res.status(400).json({ error: 'Strava Client ID no configurado en el servidor' });
+  }
+  const url = `https://www.strava.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&approval_prompt=force&scope=read,activity:read_all`;
+  res.json({ url });
+});
+
+router.post('/strava/connect', auth, async (req, res) => {
+  const axios = require('axios');
+  const { code } = req.body;
+  if (!code) {
+    return res.status(400).json({ error: 'Código de autorización requerido' });
+  }
+  try {
+    const clientId = process.env.STRAVA_CLIENT_ID;
+    const clientSecret = process.env.STRAVA_CLIENT_SECRET;
+    const redirectUri = process.env.STRAVA_REDIRECT_URI || 'http://localhost:3000/api/routes/strava/callback';
+
+    const tokenRes = await axios.post('https://www.strava.com/oauth/token', {
+      client_id: clientId,
+      client_secret: clientSecret,
+      code: code,
+      grant_type: 'authorization_code'
+    });
+
+    const data = tokenRes.data;
+    req.user.strava = {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: data.expires_at,
+      athleteId: data.athlete?.id || null
+    };
+    await req.user.save();
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al conectar con Strava', message: err.message });
+  }
+});
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: 'refresh_token',
+        refresh_token: user.strava.refreshToken
+      });
+      token = refreshRes.data.access_token;
+      user.strava.accessToken = token;
+      user.strava.refreshToken = refreshRes.data.refresh_token;
+      user.strava.expiresAt = refreshRes.data.expires_at;
+      await user.save();
+    }
+
+    const activitiesRes = await axios.get('https://www.strava.com/api/v3/athlete/activities?per_page=10', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    let importedCount = 0;
+    for (const act of activitiesRes.data) {
+      const exists = await Route.findOne({ user: user._id, stravaActivityId: act.id });
+      if (!exists && act.map && act.map.summary_polyline) {
+        const polyline = require('@mapbox/polyline');
+        const decoded = polyline.decode(act.map.summary_polyline);
+        const coordinates = decoded.map(([lat, lng]) => ({
+          lat,
+          lng,
+          elevation: 0,
+          timestamp: act.start_date || '',
+          heartRate: act.average_heartrate ? Math.round(act.average_heartrate) : 0
+        }));
+
+        if (coordinates.length >= 2) {
+          const stats = computeStats(coordinates);
+          let actType = 'run';
+          if (act.type === 'Ride' || act.sport_type === 'Ride') actType = 'ride';
+          else if (act.type === 'Walk' || act.sport_type === 'Walk') actType = 'walk';
+          else if (act.type === 'Hike' || act.sport_type === 'Hike') actType = 'hike';
+
+          const newRoute = new Route({
+            user: user._id,
+            title: act.name || 'Actividad Strava',
+            source: 'strava',
+            stravaActivityId: act.id,
+            coordinates,
+            activityType: actType,
+            startDate: act.start_date ? new Date(act.start_date) : new Date(),
+            calories: act.calories ? Math.round(act.calories) : 0,
+            averageHeartRate: act.average_heartrate ? Math.round(act.average_heartrate) : 0,
+            maxHeartRate: act.max_heartrate ? Math.round(act.max_heartrate) : 0,
+            distance: Math.round(act.distance || stats.distance),
+            duration: Math.round(act.moving_time || stats.duration),
+            elevationGain: Math.round(act.total_elevation_gain || stats.elevationGain),
+            averagePace: stats.averagePace
+          });
+          await newRoute.save();
+          importedCount++;
+        }
+      }
+    }
+
+    res.json({ success: true, count: importedCount });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al sincronizar con Strava', message: error.message });
+  }
+});
+
+router.post('/strava/disconnect', auth, async (req, res) => {
+  try {
+    req.user.strava = {
+      accessToken: '',
+      refreshToken: '',
+      expiresAt: 0,
+      athleteId: null
+    };
+    await req.user.save();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al desconectar Strava' });
+  }
+});
+
 module.exports = router;

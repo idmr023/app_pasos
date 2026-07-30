@@ -4,6 +4,9 @@ import '../config/theme.dart';
 import '../providers/auth_provider.dart';
 import '../providers/xp_provider.dart';
 import '../providers/gym_provider.dart';
+import 'package:http/http.dart' as http;
+import '../config/api.dart';
+import '../providers/route_provider.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/player_avatar.dart';
 
@@ -146,6 +149,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final auth = context.watch<AuthProvider>();
     final xpProv = context.watch<XpProvider>();
     final user = auth.user;
+    final hasStrava = user?.hasStrava ?? false;
 
     return Scaffold(
       body: SingleChildScrollView(
@@ -156,6 +160,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _buildTopBar(),
             const SizedBox(height: 24),
             _buildLevelSection(user, xpProv),
+            const SizedBox(height: 24),
+            _buildStravaAdminSection(hasStrava),
             const SizedBox(height: 24),
             _buildUserDataSection(),
             const SizedBox(height: 24),
@@ -168,6 +174,141 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _buildSaveButton(),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildStravaAdminSection(bool hasStrava) {
+    return GlassCard(
+      width: double.infinity,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.bolt, color: Color(0xFFFC4C02), size: 24),
+              const SizedBox(width: 12),
+              Text('CONEXIÓN STRAVA', style: AppTheme.labelLarge),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (hasStrava) ...[
+            Row(
+              children: [
+                const Icon(Icons.check_circle, color: AppTheme.secondary, size: 20),
+                const SizedBox(width: 8),
+                const Text('Conectado a Strava', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  final token = context.read<AuthProvider>().token;
+                  if (token != null) {
+                    final response = await http.post(
+                      Uri.parse('${ApiConfig.baseUrl}/routes/strava/disconnect'),
+                      headers: {'Authorization': 'Bearer $token'},
+                    );
+                    if (!context.mounted) return;
+                    if (response.statusCode == 200) {
+                      await context.read<AuthProvider>().refreshProfile();
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Desconectado de Strava con éxito')),
+                      );
+                    }
+                  }
+                },
+                icon: const Icon(Icons.link_off, color: AppTheme.error),
+                label: const Text('Desconectar Strava', style: TextStyle(color: AppTheme.error)),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: AppTheme.error.withValues(alpha: 0.5)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+          ] else ...[
+            const Text('Administra tu conexión con Strava para importar actividades automáticamente.', style: TextStyle(color: Colors.white70, fontSize: 13)),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  final routeProv = context.read<RouteProvider>();
+                  final url = await routeProv.getStravaAuthUrl();
+                  if (!context.mounted) return;
+                  if (url != null) {
+                    final codeController = TextEditingController();
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        backgroundColor: AppTheme.surface,
+                        title: const Text('Conectar con Strava', style: TextStyle(color: Colors.white)),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('1. Autoriza la app en el navegador con este enlace:\n', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                            SelectableText(url, style: const TextStyle(color: AppTheme.primary, fontSize: 12)),
+                            const SizedBox(height: 16),
+                            const Text('2. Pega aquí el código (?code=...) recibido al finalizar:', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: codeController,
+                              style: const TextStyle(color: Colors.white),
+                              decoration: InputDecoration(
+                                hintText: 'Código de Strava',
+                                hintStyle: const TextStyle(color: AppTheme.darkGrey),
+                                filled: true,
+                                fillColor: Colors.white.withValues(alpha: 0.06),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                              ),
+                            ),
+                          ],
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () async {
+                              final code = codeController.text.trim();
+                              if (code.isEmpty) return;
+                              Navigator.pop(ctx);
+                              final success = await routeProv.connectStrava(code);
+                              if (!context.mounted) return;
+                              if (success) {
+                                final count = await routeProv.syncStrava();
+                                if (!context.mounted) return;
+                                await context.read<AuthProvider>().refreshProfile();
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('¡Conectado con éxito! Sincronizados $count entrenamientos')),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Error al conectar con Strava'), backgroundColor: AppTheme.error),
+                                );
+                              }
+                            },
+                            child: const Text('Vincular'),
+                          ),
+                          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar')),
+                        ],
+                      ),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.bolt, size: 18, color: Colors.white),
+                label: const Text('Conectar Strava', style: TextStyle(color: Colors.white)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFC4C02),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

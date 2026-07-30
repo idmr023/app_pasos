@@ -58,6 +58,12 @@ const userSchema = new mongoose.Schema({
     type: String,
     enum: ['lose_weight', 'gain_muscle', 'maintain', 'endurance', 'general'],
     default: 'general'
+  },
+  strava: {
+    accessToken: { type: String, default: '' },
+    refreshToken: { type: String, default: '' },
+    expiresAt: { type: Number, default: 0 },
+    athleteId: { type: Number, default: null }
   }
 }, {
   timestamps: true

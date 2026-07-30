@@ -53,6 +53,7 @@ class AuthService {
       'weight': user.weight,
       'height': user.height,
       'goal': user.goal,
+      'hasStrava': user.hasStrava,
     }));
   }
 
@@ -138,6 +139,7 @@ class AuthService {
       'weight': user.weight,
       'height': user.height,
       'goal': user.goal,
+      'hasStrava': user.hasStrava,
     }));
     return user;
   }

@@ -7,10 +7,13 @@ import '../providers/step_provider.dart';
 import '../providers/xp_provider.dart';
 import '../providers/gym_provider.dart';
 import '../providers/chat_provider.dart';
+import '../providers/route_provider.dart';
 import 'home_screen.dart';
 import 'profile_screen.dart';
 import 'gym/gym_screen.dart';
 import 'chat/chat_screen.dart';
+
+import 'routes/routes_screen.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -25,6 +28,7 @@ class _MainShellState extends State<MainShell> {
   final List<Widget> _screens = const [
     HomeScreen(),
     GymScreen(),
+    RoutesScreen(),
     ChatScreen(),
     ProfileScreen(),
   ];
@@ -49,6 +53,7 @@ class _MainShellState extends State<MainShell> {
     context.read<GymProvider>().setToken(token);
     context.read<ChatProvider>().setToken(token);
     context.read<ChatProvider>().loadHistory();
+    context.read<RouteProvider>().setToken(token);
   }
 
   @override
@@ -94,6 +99,7 @@ class _MainShellState extends State<MainShell> {
           items: const [
             BottomNavigationBarItem(icon: Icon(Icons.directions_run), label: 'Pasos'),
             BottomNavigationBarItem(icon: Icon(Icons.fitness_center), label: 'Gimnasio'),
+            BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Rutas'),
             BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline), label: 'Chat'),
             BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Perfil'),
           ],

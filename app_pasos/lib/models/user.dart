@@ -10,6 +10,7 @@ class User {
   final double weight;
   final double height;
   final String goal;
+  final bool hasStrava;
 
   User({
     required this.id,
@@ -23,6 +24,7 @@ class User {
     this.weight = 0,
     this.height = 0,
     this.goal = 'general',
+    this.hasStrava = false,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -38,6 +40,7 @@ class User {
       weight: (json['weight'] as num?)?.toDouble() ?? 0,
       height: (json['height'] as num?)?.toDouble() ?? 0,
       goal: json['goal'] ?? 'general',
+      hasStrava: json['hasStrava'] ?? (json['strava'] != null && json['strava']['accessToken'] != null && json['strava']['accessToken'] != ''),
     );
   }
 
@@ -53,6 +56,7 @@ class User {
     double? weight,
     double? height,
     String? goal,
+    bool? hasStrava,
   }) {
     return User(
       id: id ?? this.id,
@@ -66,6 +70,7 @@ class User {
       weight: weight ?? this.weight,
       height: height ?? this.height,
       goal: goal ?? this.goal,
+      hasStrava: hasStrava ?? this.hasStrava,
     );
   }
 }

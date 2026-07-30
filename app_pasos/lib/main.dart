@@ -8,6 +8,7 @@ import 'providers/step_provider.dart';
 import 'providers/xp_provider.dart';
 import 'providers/gym_provider.dart';
 import 'providers/chat_provider.dart';
+import 'providers/route_provider.dart';
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
@@ -45,6 +46,7 @@ class AppPasosApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => XpProvider()),
         ChangeNotifierProvider(create: (_) => GymProvider()),
         ChangeNotifierProvider(create: (_) => ChatProvider()),
+        ChangeNotifierProvider(create: (_) => RouteProvider()),
       ],
       child: MaterialApp(
         title: 'App Pasos',
