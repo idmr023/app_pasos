@@ -26,6 +26,11 @@ class RouteProvider with ChangeNotifier {
     try {
       final service = RouteService(_token!);
       _routes = await service.getRoutes();
+      _routes.sort((a, b) {
+        final dateA = a.startDate ?? a.createdAt ?? DateTime(0);
+        final dateB = b.startDate ?? b.createdAt ?? DateTime(0);
+        return dateB.compareTo(dateA);
+      });
     } catch (e) {
       _error = e.toString().replaceAll('Exception: ', '');
     } finally {

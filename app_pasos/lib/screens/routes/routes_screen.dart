@@ -128,6 +128,14 @@ class _RoutesScreenState extends State<RoutesScreen> {
   }
 
   Widget _buildRouteCard(UserRoute route) {
+    final paceMin = route.averagePace ~/ 60;
+    final paceSec = route.averagePace % 60;
+    final paceStr = route.averagePace > 0 ? '$paceMin:${paceSec.toString().padLeft(2, '0')} /km' : '--';
+    
+    final durMin = route.duration ~/ 60;
+    final durSec = route.duration % 60;
+    final durStr = durMin > 0 ? '${durMin}m ${durSec}s' : '${durSec}s';
+
     return GlassCard(
       margin: const EdgeInsets.only(bottom: 12),
       onTap: () {
@@ -158,8 +166,13 @@ class _RoutesScreenState extends State<RoutesScreen> {
                 Text(route.title, style: AppTheme.titleMedium),
                 const SizedBox(height: 4),
                 Text(
-                  '${(route.distance / 1000).toStringAsFixed(2)} km • ${route.elevationGain}m desniv.',
+                  '${(route.distance / 1000).toStringAsFixed(2)} km • $durStr • $paceStr',
                   style: AppTheme.bodyMedium,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Desnivel: ${route.elevationGain}m • ${route.calories} kcal',
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
                 ),
               ],
             ),
