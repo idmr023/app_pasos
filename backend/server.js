@@ -17,6 +17,7 @@ const chatRoutes = require('./routes/chat');
 const routeRoutes = require('./routes/routes');
 
 const app = express();
+app.set('trust proxy', 1);
 
 const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
