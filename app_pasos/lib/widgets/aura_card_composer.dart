@@ -1,12 +1,11 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../models/route_card_template.dart';
 
 class AuraCardComposer {
-  static Future<ui.Image> loadImageFromFile(File file) async {
-    final bytes = await file.readAsBytes();
+  static Future<ui.Image> loadImageFromBytes(Uint8List bytes) async {
     final completer = Completer<ui.Image>();
     ui.decodeImageFromList(bytes, completer.complete);
     return completer.future;
@@ -29,7 +28,7 @@ class AuraCardComposer {
 
   static String formatDistance(double meters) {
     if (meters <= 0) return '--';
-    return '${(meters / 1000).toStringAsFixed(1)}';
+    return (meters / 1000).toStringAsFixed(1);
   }
 }
 
@@ -238,7 +237,7 @@ class AuraCardPainter extends CustomPainter {
     if (stats['title'] != null && (stats['title'] as String).isNotEmpty) {
       _drawText(canvas, stats['title'], Offset(size.width * 0.10, size.height * 0.10), template.titleStyle);
     }
-    _drawText(canvas, '$km', Offset(size.width * 0.10, size.height * 0.28), template.kmValueStyle);
+    _drawText(canvas, km, Offset(size.width * 0.10, size.height * 0.28), template.kmValueStyle);
     _drawText(canvas, 'kilómetros', Offset(size.width * 0.10, size.height * 0.28 + 60), template.kmLabelStyle);
 
     _drawText(canvas, pace, Offset(size.width * 0.10, size.height * 0.55), template.paceValueStyle);

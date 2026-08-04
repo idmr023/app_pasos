@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../config/theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/route_provider.dart';
 import '../../models/route.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/loading_states.dart';
+import '../../widgets/strava_connect_dialog.dart';
 import 'route_detail_screen.dart';
 
 class RoutesScreen extends StatefulWidget {
@@ -100,22 +102,12 @@ class _RoutesScreenState extends State<RoutesScreen> {
                     Text('Tus Actividades', style: AppTheme.titleMedium),
                     const SizedBox(height: 12),
                     if (routeProv.isLoading)
-                      const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator(color: AppTheme.primary)))
+                      const Padding(padding: EdgeInsets.all(32), child: AppLoading())
                     else if (routes.isEmpty)
-                      GlassCard(
-                        width: double.infinity,
-                        child: Padding(
-                          padding: const EdgeInsets.all(32),
-                          child: Column(
-                            children: [
-                              const Icon(Icons.map_outlined, size: 48, color: AppTheme.darkGrey),
-                              const SizedBox(height: 16),
-                              Text('No hay rutas registradas', style: AppTheme.bodyLarge),
-                              const SizedBox(height: 4),
-                              Text('Sincroniza tus actividades desde Strava', style: AppTheme.bodyMedium),
-                            ],
-                          ),
-                        ),
+                      const EmptyStateCard(
+                        icon: Icons.map_outlined,
+                        title: 'No hay rutas registradas',
+                        subtitle: 'Sincroniza tus actividades desde Strava',
                       )
                     else
                       Column(
@@ -132,103 +124,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
   }
 
   Future<void> _connectStrava(BuildContext context) async {
-    final routeProv = context.read<RouteProvider>();
-    final result = await routeProv.initStravaConnection();
-    if (!context.mounted) return;
-    if (result == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Error al iniciar conexión con Strava'), backgroundColor: AppTheme.error),
-      );
-      return;
-    }
-
-    final url = result['url'] as String;
-    final state = result['state'] as String;
-
-    if (!context.mounted) return;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        bool polling = false;
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: AppTheme.surface,
-              title: const Text('Conectar con Strava', style: TextStyle(color: Colors.white)),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.bolt, size: 48, color: Color(0xFFFC4C02)),
-                    const SizedBox(height: 16),
-                    const Text('1. Toca el botón para abrir Strava', style: TextStyle(color: Colors.white70, fontSize: 14), textAlign: TextAlign.center),
-                    const SizedBox(height: 8),
-                    const Text('2. Autoriza la aplicación', style: TextStyle(color: Colors.white70, fontSize: 14), textAlign: TextAlign.center),
-                    const SizedBox(height: 8),
-                    const Text('3. Vuelve a la app automáticamente', style: TextStyle(color: Colors.white70, fontSize: 14), textAlign: TextAlign.center),
-                    const SizedBox(height: 24),
-                    if (!polling)
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () async {
-                            final uri = Uri.parse(url);
-                            if (await canLaunchUrl(uri)) {
-                              await launchUrl(uri, mode: LaunchMode.externalApplication);
-                              setDialogState(() => polling = true);
-                              _waitForStravaConnection(ctx, state, routeProv);
-                            }
-                          },
-                          icon: const Icon(Icons.open_in_browser, color: Colors.white),
-                          label: const Text('Abrir Strava', style: TextStyle(color: Colors.white)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFFC4C02),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                        ),
-                      )
-                    else ...[
-                      const CircularProgressIndicator(color: Color(0xFFFC4C02)),
-                      const SizedBox(height: 12),
-                      const Text('Esperando autorización...', style: TextStyle(color: Colors.white70, fontSize: 13), textAlign: TextAlign.center),
-                    ],
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar')),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _waitForStravaConnection(BuildContext dialogContext, String state, RouteProvider routeProv) async {
-    const maxAttempts = 60;
-    for (int i = 0; i < maxAttempts; i++) {
-      await Future.delayed(const Duration(seconds: 2));
-      final connected = await routeProv.checkStravaStatus(state);
-      if (connected) {
-        if (!dialogContext.mounted) return;
-        Navigator.pop(dialogContext);
-        if (!context.mounted) return;
-        final count = await routeProv.syncStrava();
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('¡Conectado a Strava! Sincronizados $count entrenamientos')),
-        );
-        return;
-      }
-    }
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Tiempo agotado. Intenta de nuevo.'), backgroundColor: AppTheme.error),
-    );
+    await StravaConnectDialog.show(context);
   }
 
   Widget _buildRouteCard(UserRoute route) {

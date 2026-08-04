@@ -37,9 +37,9 @@ class PlayerAvatar extends StatelessWidget {
             boxShadow: showGlow
                 ? [
                     BoxShadow(
-                      color: color.withValues(alpha: isLeading ? 0.5 : 0.3),
-                      blurRadius: radius * 0.6,
-                      spreadRadius: radius * 0.1,
+                      color: color.withValues(alpha: isLeading ? 0.35 : 0.2),
+                      blurRadius: radius * 0.25,
+                      spreadRadius: 0,
                     ),
                   ]
                 : null,
@@ -58,7 +58,7 @@ class PlayerAvatar extends StatelessWidget {
                 ),
               CircleAvatar(
                 radius: radius,
-                backgroundColor: color.withValues(alpha: 0.15),
+                backgroundColor: color.withValues(alpha: 0.12),
                 child: Icon(icon, size: radius, color: color),
               ),
               if (isLeading)

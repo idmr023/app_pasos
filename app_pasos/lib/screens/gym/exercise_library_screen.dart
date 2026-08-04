@@ -6,6 +6,9 @@ import '../../config/theme.dart';
 import '../../providers/gym_provider.dart';
 import '../../models/exercise.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/error_state.dart';
+import '../../widgets/loading_states.dart';
+import '../../widgets/screen_top_bar.dart';
 import 'exercise_detail_sheet.dart';
 
 class ExerciseLibraryScreen extends StatefulWidget {
@@ -90,7 +93,7 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
               _buildCategoryFilter(),
               Expanded(
                 child: gym.isLoading && gym.exercises.isEmpty
-                    ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
+                    ? const AppLoading()
                     : gym.error != null && gym.exercises.isEmpty
                         ? _buildErrorState(gym)
                         : _buildGrid(gym),
@@ -105,24 +108,9 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
   }
 
   Widget _buildTopBar() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white70),
-            onPressed: () => Navigator.pop(context, widget.selectionMode ? _selected.toList() : null),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              widget.selectionMode ? 'SELECCIONAR EJERCICIOS' : 'EJERCICIOS',
-              style: AppTheme.titleLarge.copyWith(letterSpacing: 2),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
+    return ScreenTopBar(
+      title: widget.selectionMode ? 'SELECCIONAR EJERCICIOS' : 'EJERCICIOS',
+      onBack: () => Navigator.pop(context, widget.selectionMode ? _selected.toList() : null),
     );
   }
 
@@ -213,32 +201,10 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
   }
 
   Widget _buildErrorState(GymProvider gym) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, size: 64, color: AppTheme.error),
-            const SizedBox(height: 16),
-            Text('Error al cargar ejercicios', style: AppTheme.headlineMedium),
-            const SizedBox(height: 8),
-            Text(gym.error!, style: AppTheme.bodyMedium, textAlign: TextAlign.center),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () => context.read<GymProvider>().loadExercises(reset: true),
-              icon: const Icon(Icons.refresh),
-              label: const Text('REINTENTAR'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primary,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-            ),
-          ],
-        ),
-      ),
+    return ErrorState(
+      title: 'Error al cargar ejercicios',
+      message: gym.error ?? 'Error al cargar ejercicios',
+      onRetry: () => context.read<GymProvider>().loadExercises(reset: true),
     );
   }
 
@@ -271,11 +237,9 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
       itemCount: exercises.length + (gym.hasMore ? 1 : 0),
       itemBuilder: (ctx, i) {
         if (i == exercises.length) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(16),
-              child: CircularProgressIndicator(color: AppTheme.primary),
-            ),
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: AppLoading(size: 28),
           );
         }
         return _ExerciseCard(

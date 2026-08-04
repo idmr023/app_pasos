@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../config/api.dart';
 import '../config/theme.dart';
+import '../widgets/loading_states.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -182,7 +183,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       ),
                       child: _isLoading
-                          ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          ? const InlineSpinner()
                           : const Text('OBTENER PREGUNTA', style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1)),
                     ),
                   ),
@@ -213,7 +214,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       ),
                       child: _isLoading
-                          ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          ? const InlineSpinner()
                           : const Text('VERIFICAR', style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1)),
                     ),
                   ),
@@ -235,7 +236,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       ),
                       child: _isLoading
-                          ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          ? const InlineSpinner()
                           : const Text('RESTABLECER', style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1)),
                     ),
                   ),

@@ -1,14 +1,16 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:gal/gal.dart';
 import '../../config/theme.dart';
 import '../../models/route_card_template.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/aura_card_service.dart';
 import '../../widgets/aura_card_composer.dart';
+import '../../widgets/loading_states.dart';
 import '../../widgets/template_selector.dart';
 
 class ShareAuraScreen extends StatefulWidget {
@@ -25,6 +27,7 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
   AuraCardData? _cardData;
   ui.Image? _mapImage;
   bool _isLoading = false;
+  bool _isSharing = false;
   String? _error;
   final GlobalKey _repaintKey = GlobalKey();
 
@@ -51,12 +54,8 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
         template: _selectedTemplate,
       );
 
-      final mapFile = await service.downloadMapImage(
-        data.imageUrl,
-        widget.routeId,
-      );
-
-      final image = await AuraCardComposer.loadImageFromFile(mapFile);
+      final mapBytes = await service.downloadMapImage(data.imageUrl);
+      final image = await AuraCardComposer.loadImageFromBytes(mapBytes);
 
       if (!mounted) return;
       setState(() {
@@ -73,29 +72,78 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
     }
   }
 
+  Future<Uint8List?> _captureCardBytes() async {
+    if (_cardData == null) return null;
+
+    final boundary = _repaintKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+    if (boundary == null) return null;
+
+    final image = await boundary.toImage(pixelRatio: 3);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (byteData == null) return null;
+    return byteData.buffer.asUint8List();
+  }
+
   Future<void> _shareCard() async {
-    if (_cardData == null) return;
+    if (_cardData == null || _isSharing) return;
 
+    setState(() => _isSharing = true);
     try {
-      final boundary = _repaintKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-      if (boundary == null) return;
+      final bytes = await _captureCardBytes();
+      if (bytes == null) return;
 
-      final image = await boundary.toImage(pixelRatio: 3);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData == null) return;
-
-      final dir = Directory.systemTemp;
-      final file = File('${dir.path}/aura_card_${DateTime.now().millisecondsSinceEpoch}.png');
-      await file.writeAsBytes(byteData.buffer.asUint8List());
-
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        text: 'Mi entrenamiento en App Pasos!',
+      final xfile = XFile.fromData(
+        bytes,
+        mimeType: 'image/png',
+        name: 'aura_card_${DateTime.now().millisecondsSinceEpoch}.png',
       );
+
+      await Share.shareXFiles([xfile], text: 'Mi entrenamiento en App Pasos!');
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error al compartir: $e'), backgroundColor: AppTheme.error),
+      );
+    } finally {
+      if (mounted) setState(() => _isSharing = false);
+    }
+  }
+
+  Future<void> _copyCard() async {
+    try {
+      final bytes = await _captureCardBytes();
+      if (bytes == null) return;
+      
+      final xfile = XFile.fromData(
+        bytes,
+        mimeType: 'image/png',
+        name: 'aura_card_${DateTime.now().millisecondsSinceEpoch}.png',
+      );
+      await Share.shareXFiles([xfile], text: 'Mi tarjeta de ruta en App Pasos!');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo compartir la imagen: $e'), backgroundColor: AppTheme.error),
+      );
+    }
+  }
+
+  Future<void> _saveToGallery() async {
+    try {
+      final bytes = await _captureCardBytes();
+      if (bytes == null) return;
+      if (!await Gal.hasAccess(toAlbum: true)) {
+        await Gal.requestAccess(toAlbum: true);
+      }
+      await Gal.putImageBytes(bytes, album: 'App Pasos');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Imagen guardada en la galería'), backgroundColor: AppTheme.secondary),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo guardar la imagen en este dispositivo'), backgroundColor: AppTheme.error),
       );
     }
   }
@@ -108,12 +156,25 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
         backgroundColor: Colors.transparent,
         title: const Text('Share Aura', style: TextStyle(fontWeight: FontWeight.w600, letterSpacing: 1)),
         actions: [
-          if (_cardData != null)
+          if (_cardData != null) ...[
             IconButton(
-              icon: const Icon(Icons.share, color: Colors.white),
-              onPressed: _shareCard,
+              icon: const Icon(Icons.copy, color: Colors.white),
+              onPressed: _copyCard,
+              tooltip: 'Copiar imagen',
+            ),
+            IconButton(
+              icon: const Icon(Icons.download, color: Colors.white),
+              onPressed: _saveToGallery,
+              tooltip: 'Guardar en galería',
+            ),
+            IconButton(
+              icon: _isSharing
+                  ? const InlineSpinner()
+                  : const Icon(Icons.share, color: Colors.white),
+              onPressed: _isSharing ? null : _shareCard,
               tooltip: 'Compartir',
             ),
+          ],
         ],
       ),
       body: Column(

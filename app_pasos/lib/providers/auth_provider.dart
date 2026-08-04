@@ -133,6 +133,22 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<bool> changePassword(String currentPassword, String newPassword) async {
+    final token = _token;
+    if (token == null) return false;
+    _error = null;
+    try {
+      final newToken = await _authService.changePassword(token, currentPassword, newPassword);
+      _token = newToken;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+      notifyListeners();
+      return false;
+    }
+  }
+
   Future<void> refreshProfile() async {
     if (_token == null) return;
     try {

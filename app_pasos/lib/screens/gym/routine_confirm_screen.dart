@@ -4,6 +4,7 @@ import '../../config/theme.dart';
 import '../../models/exercise.dart';
 import '../../providers/gym_provider.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/screen_top_bar.dart';
 
 class RoutineConfirmScreen extends StatelessWidget {
   final String routineName;
@@ -115,22 +116,7 @@ class RoutineConfirmScreen extends StatelessWidget {
   }
 
   Widget _buildTopBar(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white70),
-            onPressed: () => Navigator.pop(context),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            'CONFIRMAR RUTINA',
-            style: AppTheme.titleLarge.copyWith(letterSpacing: 2),
-          ),
-        ],
-      ),
-    );
+    return const ScreenTopBar(title: 'CONFIRMAR RUTINA');
   }
 
   Widget _buildSummaryCard() {

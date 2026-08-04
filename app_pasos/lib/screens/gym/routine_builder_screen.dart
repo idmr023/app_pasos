@@ -5,6 +5,8 @@ import '../../providers/gym_provider.dart';
 import '../../models/exercise.dart';
 import '../../models/routine.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/loading_states.dart';
+import '../../widgets/screen_top_bar.dart';
 import 'exercise_library_screen.dart';
 import 'workout_screen.dart';
 
@@ -174,21 +176,8 @@ class _RoutineBuilderScreenState extends State<RoutineBuilderScreen> {
   }
 
   Widget _buildTopBar() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white70),
-            onPressed: () => Navigator.pop(context),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            widget.editRoutine != null ? 'EDITAR RUTINA' : 'NUEVA RUTINA',
-            style: AppTheme.titleLarge.copyWith(letterSpacing: 2),
-          ),
-        ],
-      ),
+    return ScreenTopBar(
+      title: widget.editRoutine != null ? 'EDITAR RUTINA' : 'NUEVA RUTINA',
     );
   }
 
@@ -472,7 +461,7 @@ class _RoutineBuilderScreenState extends State<RoutineBuilderScreen> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                   child: _isSaving
-                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      ? const InlineSpinner()
                       : const FittedBox(
                           fit: BoxFit.scaleDown,
                           child: Text('GUARDAR', style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1)),

@@ -69,6 +69,24 @@ class RouteService {
     return UserRoute.fromJson(data['route']);
   }
 
+  Future<UserRoute> updateRoute(String id, Map<String, dynamic> body) async {
+    final response = await http.put(
+      Uri.parse('${ApiConfig.baseUrl}/routes/$id'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode(body),
+    ).timeout(ApiConfig.timeout);
+
+    final data = _parseJson(response);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Error al actualizar ruta');
+    }
+
+    return UserRoute.fromJson(data['route']);
+  }
+
   Future<void> deleteRoute(String id) async {
     final response = await http.delete(
       Uri.parse('${ApiConfig.baseUrl}/routes/$id'),
@@ -126,5 +144,20 @@ class RouteService {
       throw Exception(data['error'] ?? 'Error al sincronizar con Strava');
     }
     return data['count'] ?? 0;
+  }
+
+  Future<void> disconnectStrava() async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/routes/strava/disconnect'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    ).timeout(ApiConfig.timeout);
+
+    final data = _parseJson(response);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Error al desconectar Strava');
+    }
   }
 }

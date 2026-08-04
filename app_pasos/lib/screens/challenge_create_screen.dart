@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../config/theme.dart';
 import '../providers/challenge_provider.dart';
 import '../widgets/glass_card.dart';
+import '../widgets/loading_states.dart';
 import '../widgets/neon_button.dart';
 
 class ChallengeCreateScreen extends StatefulWidget {
@@ -35,7 +36,7 @@ class _ChallengeCreateScreenState extends State<ChallengeCreateScreen> {
           child: Consumer<ChallengeProvider>(
             builder: (context, challengeProvider, _) {
               if (challengeProvider.isLoading) {
-                return const Center(child: CircularProgressIndicator(color: AppTheme.primary));
+                return const AppLoading();
               }
 
               if (challengeProvider.currentChallenge != null) {

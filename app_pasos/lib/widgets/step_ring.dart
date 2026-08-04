@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../config/theme.dart';
 
 class StepRing extends StatelessWidget {
@@ -141,11 +142,9 @@ class DualStepRing extends StatelessWidget {
             children: [
               Text(
                 _formatSteps(userSteps.toInt()),
-                style: TextStyle(
-                  fontFamily: 'Montserrat',
+                style: GoogleFonts.sora(
                   fontSize: size * 0.12,
-                  fontWeight: FontWeight.w900,
-                  fontStyle: FontStyle.italic,
+                  fontWeight: FontWeight.w700,
                   color: AppTheme.primary,
                 ),
               ),
@@ -161,11 +160,9 @@ class DualStepRing extends StatelessWidget {
               SizedBox(height: size * 0.02),
               Text(
                 _formatSteps(opponentSteps.toInt()),
-                style: TextStyle(
-                  fontFamily: 'Montserrat',
+                style: GoogleFonts.sora(
                   fontSize: size * 0.12,
-                  fontWeight: FontWeight.w900,
-                  fontStyle: FontStyle.italic,
+                  fontWeight: FontWeight.w700,
                   color: AppTheme.secondary,
                 ),
               ),

@@ -13,6 +13,9 @@ router.post('/', auth, async (req, res) => {
     if (!message || message.trim().length === 0) {
       return res.status(400).json({ error: 'El mensaje no puede estar vacío' });
     }
+    if (typeof message !== 'string' || message.trim().length > 2000) {
+      return res.status(400).json({ error: 'El mensaje no puede superar los 2000 caracteres' });
+    }
 
     let conversation = await ChatConversation.findOne({ user: req.user._id });
     if (!conversation) {

@@ -7,9 +7,12 @@ import '../providers/step_provider.dart';
 import '../providers/xp_provider.dart';
 import '../providers/route_provider.dart';
 import '../widgets/glass_card.dart';
+import '../widgets/empty_state.dart';
+import '../widgets/loading_states.dart';
 import '../widgets/player_avatar.dart';
 import '../widgets/neon_button.dart';
 import '../widgets/animated_counter.dart';
+import 'main_shell.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -109,7 +112,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         child: Row(
           children: [
             GestureDetector(
-              onTap: () => Navigator.pushNamed(context, '/profile'),
+              onTap: () => MainShellScope.of(context)?.goToTab(4),
               child: PlayerAvatar(
                 radius: 28,
                 avatarType: user?.avatar ?? 'runner',
@@ -194,7 +197,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           if (challengeProv.isLoading)
             const Padding(
               padding: EdgeInsets.all(32),
-              child: CircularProgressIndicator(color: AppTheme.primary),
+              child: AppLoading(),
             )
           else if (!hasChallenges && _tabController.index == 0)
             _buildEmptyState()
@@ -214,18 +217,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         : challengeProv.finishedChallenges;
 
     if (challenges.isEmpty && _tabController.index == 1) {
-      return GlassCard(
-        width: double.infinity,
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            children: [
-              const Icon(Icons.check_circle_outline, size: 48, color: AppTheme.darkGrey),
-              const SizedBox(height: 16),
-              Text('No hay retos finalizados', style: AppTheme.bodyMedium),
-            ],
-          ),
-        ),
+      return const EmptyStateCard(
+        icon: Icons.check_circle_outline,
+        title: 'No hay retos finalizados',
       );
     }
 
@@ -237,23 +231,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildEmptyState() {
-    return GlassCard(
-      width: double.infinity,
-      child: Column(
+    return EmptyStateCard(
+      icon: Icons.emoji_events_outlined,
+      title: 'No tienes retos activos',
+      subtitle: 'Crea uno o únete a un amigo',
+      action: Column(
         children: [
-          const Icon(Icons.emoji_events_outlined, size: 48, color: AppTheme.darkGrey),
-          const SizedBox(height: 16),
-          Text('No tienes retos activos', style: AppTheme.bodyLarge),
-          const SizedBox(height: 4),
-          Text('Crea uno o únete a un amigo', style: AppTheme.bodyMedium),
-          const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            child: NeonButton(
-              label: 'CREAR RETO',
-              icon: Icons.add,
-              onPressed: () => Navigator.pushNamed(context, '/challenge-create'),
-            ),
+          NeonButton(
+            label: 'CREAR RETO',
+            icon: Icons.add,
+            onPressed: () => Navigator.pushNamed(context, '/challenge-create'),
           ),
           const SizedBox(height: 12),
           SizedBox(
@@ -266,7 +253,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 foregroundColor: AppTheme.primary,
                 side: BorderSide(color: AppTheme.primary.withValues(alpha: 0.5)),
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 backgroundColor: Colors.transparent,
               ),
             ),

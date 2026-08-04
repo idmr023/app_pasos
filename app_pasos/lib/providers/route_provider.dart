@@ -49,6 +49,24 @@ class RouteProvider with ChangeNotifier {
     }
   }
 
+  Future<bool> updateRouteDesign(String id, RouteDesign design) async {
+    if (_token == null) return false;
+    try {
+      final service = RouteService(_token!);
+      final updated = await service.updateRoute(id, {'design': design.toJson()});
+      final index = _routes.indexWhere((r) => r.id == id);
+      if (index != -1) {
+        _routes[index] = updated;
+        notifyListeners();
+      }
+      return true;
+    } catch (e) {
+      _error = e.toString().replaceAll('Exception: ', '');
+      notifyListeners();
+      return false;
+    }
+  }
+
   Future<bool> deleteRoute(String id) async {
     if (_token == null) return false;
     try {
@@ -98,6 +116,19 @@ class RouteProvider with ChangeNotifier {
       _error = e.toString().replaceAll('Exception: ', '');
       notifyListeners();
       return 0;
+    }
+  }
+
+  Future<bool> disconnectStrava() async {
+    if (_token == null) return false;
+    try {
+      final service = RouteService(_token!);
+      await service.disconnectStrava();
+      return true;
+    } catch (e) {
+      _error = e.toString().replaceAll('Exception: ', '');
+      notifyListeners();
+      return false;
     }
   }
 }

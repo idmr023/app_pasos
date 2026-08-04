@@ -30,6 +30,10 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  gymXp: {
+    type: Number,
+    default: 0
+  },
   level: {
     type: Number,
     default: 0
@@ -37,6 +41,10 @@ const userSchema = new mongoose.Schema({
   title: {
     type: String,
     default: ''
+  },
+  passwordChangedAt: {
+    type: Date,
+    default: null
   },
   securityQuestion: {
     type: String,

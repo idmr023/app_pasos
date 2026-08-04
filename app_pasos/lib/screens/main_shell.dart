@@ -22,8 +22,29 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
+class MainShellScope extends InheritedWidget {
+  final void Function(int) goToTab;
+
+  const MainShellScope({
+    super.key,
+    required this.goToTab,
+    required super.child,
+  });
+
+  static MainShellScope? of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<MainShellScope>();
+
+  @override
+  bool updateShouldNotify(MainShellScope oldWidget) =>
+      goToTab != oldWidget.goToTab;
+}
+
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
+
+  void _goToTab(int index) {
+    setState(() => _currentIndex = index);
+  }
 
   final List<Widget> _screens = const [
     HomeScreen(),
@@ -58,51 +79,54 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              AppTheme.background,
-              Color(0xFF0A0A1A),
-              AppTheme.background,
-            ],
+    return MainShellScope(
+      goToTab: _goToTab,
+      child: Scaffold(
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                AppTheme.background,
+                Color(0xFF0A0A1A),
+                AppTheme.background,
+              ],
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: IndexedStack(
-            index: _currentIndex,
-            children: _screens,
-          ),
-        ),
-      ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          border: Border(
-            top: BorderSide(
-              color: Colors.white.withValues(alpha: 0.06),
-              width: 1,
+          child: SafeArea(
+            child: IndexedStack(
+              index: _currentIndex,
+              children: _screens,
             ),
           ),
         ),
-        child: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: (i) => setState(() => _currentIndex = i),
-          backgroundColor: AppTheme.surface.withValues(alpha: 0.95),
-          selectedItemColor: AppTheme.primary,
-          unselectedItemColor: AppTheme.darkGrey,
-          type: BottomNavigationBarType.fixed,
-          selectedLabelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
-          unselectedLabelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
-          items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.directions_run), label: 'Pasos'),
-            BottomNavigationBarItem(icon: Icon(Icons.fitness_center), label: 'Gimnasio'),
-            BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Rutas'),
-            BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline), label: 'Chat'),
-            BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Perfil'),
-          ],
+        bottomNavigationBar: Container(
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(
+                color: Colors.white.withValues(alpha: 0.06),
+                width: 1,
+              ),
+            ),
+          ),
+          child: BottomNavigationBar(
+            currentIndex: _currentIndex,
+            onTap: _goToTab,
+            backgroundColor: AppTheme.surface.withValues(alpha: 0.95),
+            selectedItemColor: AppTheme.primary,
+            unselectedItemColor: AppTheme.darkGrey,
+            type: BottomNavigationBarType.fixed,
+            selectedLabelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+            unselectedLabelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+            items: const [
+              BottomNavigationBarItem(icon: Icon(Icons.directions_run), label: 'Pasos'),
+              BottomNavigationBarItem(icon: Icon(Icons.fitness_center), label: 'Gimnasio'),
+              BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Rutas'),
+              BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline), label: 'Chat'),
+              BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Perfil'),
+            ],
+          ),
         ),
       ),
     );

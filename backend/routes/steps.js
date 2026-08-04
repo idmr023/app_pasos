@@ -2,9 +2,11 @@ const express = require('express');
 const auth = require('../middleware/auth');
 const StepEntry = require('../models/StepEntry');
 const Challenge = require('../models/Challenge');
-const User = require('../models/User');
+const { xpFromSteps, levelFromXp, bestTitleForLevel, getTotalSteps } = require('../services/xpService');
 
 const router = express.Router();
+
+const MAX_DAILY_STEPS = 200000;
 
 router.post('/', auth, async (req, res) => {
   try {
@@ -13,8 +15,11 @@ router.post('/', auth, async (req, res) => {
     if (!challengeId || !date || steps === undefined || steps === null) {
       return res.status(400).json({ error: 'challengeId, date y steps son requeridos' });
     }
-    if (typeof steps !== 'number' || steps < 0) {
-      return res.status(400).json({ error: 'steps debe ser un número positivo' });
+    if (typeof steps !== 'number' || !Number.isInteger(steps) || steps < 0) {
+      return res.status(400).json({ error: 'steps debe ser un número entero positivo' });
+    }
+    if (steps > MAX_DAILY_STEPS) {
+      return res.status(400).json({ error: `Máximo ${MAX_DAILY_STEPS.toLocaleString()} pasos por día` });
     }
 
     const challenge = await Challenge.findById(challengeId);
@@ -58,23 +63,13 @@ router.post('/', auth, async (req, res) => {
       await entry.save();
     }
 
-    const totalSteps = await StepEntry.aggregate([
-      { $match: { user: req.user._id } },
-      { $group: { _id: null, total: { $sum: '$steps' } } }
-    ]);
-    const totalXp = Math.floor((totalSteps[0]?.total || 0) / 10);
-    const newLevel = (() => {
-      let l = 0;
-      while (1000 * (l + 1) * (l + 2) / 2 <= totalXp) l++;
-      return l;
-    })();
+    const totalSteps = await getTotalSteps(req.user._id);
+    const totalXp = xpFromSteps(totalSteps) + (req.user.gymXp || 0);
+    const newLevel = levelFromXp(totalXp);
     req.user.xp = totalXp;
     req.user.level = newLevel;
-    const bestReward = [10, 20, 30, 40, 50].filter(r => newLevel >= r).pop();
-    const rewards = { 10: { title: 'Caminante' }, 20: { title: 'Maratonista' }, 30: { title: 'Ultramaratonista' }, 40: { title: 'Leyenda' }, 50: { title: 'Titán' } };
-    if (bestReward && rewards[bestReward]?.title) {
-      req.user.title = rewards[bestReward].title;
-    }
+    const title = bestTitleForLevel(newLevel);
+    if (title) req.user.title = title;
     await req.user.save();
 
     res.json(entry);

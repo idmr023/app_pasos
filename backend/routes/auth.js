@@ -6,25 +6,41 @@ const auth = require('../middleware/auth');
 
 const router = express.Router();
 
+const validateUsername = (username) =>
+  typeof username === 'string' && /^[a-zA-Z0-9_.]{3,20}$/.test(username.trim());
+
+const validatePassword = (password) =>
+  typeof password === 'string' && password.length >= 6 && password.length <= 128;
+
 router.post('/register', async (req, res) => {
   try {
     const { username, password, displayName } = req.body;
 
-    const existingUser = await User.findOne({ username });
+    if (!validateUsername(username)) {
+      return res.status(400).json({ error: 'El usuario debe tener entre 3 y 20 caracteres (letras, números, _ y .)' });
+    }
+    if (!validatePassword(password)) {
+      return res.status(400).json({ error: 'La contraseña debe tener entre 6 y 128 caracteres' });
+    }
+    if (displayName !== undefined && (typeof displayName !== 'string' || displayName.trim().length < 2 || displayName.trim().length > 30)) {
+      return res.status(400).json({ error: 'El nombre debe tener entre 2 y 30 caracteres' });
+    }
+
+    const existingUser = await User.findOne({ username: username.trim() });
     if (existingUser) {
       return res.status(400).json({ error: 'El usuario ya existe' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = new User({
-      username,
+      username: username.trim(),
       password: hashedPassword,
-      displayName: displayName || username
+      displayName: displayName ? displayName.trim() : username.trim()
     });
     await user.save();
 
     const token = jwt.sign(
-      { userId: user._id },
+      { userId: user._id, purpose: 'session' },
       process.env.JWT_SECRET,
       { expiresIn: '30d' }
     );
@@ -55,7 +71,11 @@ router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    const user = await User.findOne({ username });
+    if (typeof username !== 'string' || typeof password !== 'string' || !username.trim() || !password) {
+      return res.status(400).json({ error: 'Usuario o contraseña incorrectos' });
+    }
+
+    const user = await User.findOne({ username: username.trim() });
     if (!user) {
       return res.status(400).json({ error: 'Usuario o contraseña incorrectos' });
     }
@@ -66,7 +86,7 @@ router.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign(
-      { userId: user._id },
+      { userId: user._id, purpose: 'session' },
       process.env.JWT_SECRET,
       { expiresIn: '30d' }
     );
@@ -136,14 +156,14 @@ router.put('/profile', auth, async (req, res) => {
     }
 
     if (weight !== undefined) {
-      if (weight < 20 || weight > 500) {
+      if (typeof weight !== 'number' || weight < 20 || weight > 500) {
         return res.status(400).json({ error: 'El peso debe estar entre 20 y 500 kg' });
       }
       req.user.weight = weight;
     }
 
     if (height !== undefined) {
-      if (height < 50 || height > 300) {
+      if (typeof height !== 'number' || height < 50 || height > 300) {
         return res.status(400).json({ error: 'La altura debe estar entre 50 y 300 cm' });
       }
       req.user.height = height;
@@ -177,6 +197,38 @@ router.put('/profile', auth, async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Error al actualizar perfil' });
+  }
+});
+
+router.put('/password', auth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (typeof currentPassword !== 'string' || !currentPassword) {
+      return res.status(400).json({ error: 'La contraseña actual es requerida' });
+    }
+    if (!validatePassword(newPassword)) {
+      return res.status(400).json({ error: 'La contraseña debe tener entre 6 y 128 caracteres' });
+    }
+
+    const valid = await bcrypt.compare(currentPassword, req.user.password);
+    if (!valid) {
+      return res.status(400).json({ error: 'La contraseña actual es incorrecta' });
+    }
+
+    req.user.password = await bcrypt.hash(newPassword, 10);
+    req.user.passwordChangedAt = new Date();
+    await req.user.save();
+
+    const token = jwt.sign(
+      { userId: req.user._id, purpose: 'session' },
+      process.env.JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+
+    res.json({ success: true, token });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al cambiar la contraseña' });
   }
 });
 
@@ -255,6 +307,7 @@ router.post('/reset-password', async (req, res) => {
     }
 
     user.password = await bcrypt.hash(newPassword, 10);
+    user.passwordChangedAt = new Date();
     await user.save();
 
     res.json({ success: true });

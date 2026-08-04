@@ -160,4 +160,29 @@ class AuthService {
 
     return User.fromJson(data['user']);
   }
+
+  Future<String> changePassword(String token, String currentPassword, String newPassword) async {
+    final response = await http.put(
+      Uri.parse('${ApiConfig.baseUrl}/auth/password'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+      }),
+    ).timeout(ApiConfig.timeout);
+
+    final data = _parseJson(response);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Error al cambiar la contraseña');
+    }
+
+    final newToken = data['token'] as String?;
+    if (newToken != null) {
+      await _storage.write(key: _tokenKey, value: newToken);
+    }
+    return newToken ?? token;
+  }
 }

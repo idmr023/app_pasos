@@ -4,6 +4,8 @@ import '../../config/theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/gym_provider.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/loading_states.dart';
 import '../../widgets/neon_button.dart';
 import 'exercise_library_screen.dart';
 import 'routine_config_screen.dart';
@@ -40,7 +42,7 @@ class _GymScreenState extends State<GymScreen> {
     gym.loadStreak().then((_) => gym.loadQuote());
   }
 
-  Future<void> _createRoutineFlow(BuildContext context) async {
+  Future<void> _createRoutineFlow() async {
     final selectedIds = await Navigator.push<List<String>>(
       context,
       MaterialPageRoute(
@@ -63,8 +65,7 @@ class _GymScreenState extends State<GymScreen> {
     );
     if (config == null || !mounted) return;
 
-    final saved = await Navigator.push<bool>(
-      context,
+    final saved = await Navigator.push<bool>(      context,
       MaterialPageRoute(
         builder: (_) => RoutineConfirmScreen(
           routineName: config.name,
@@ -96,7 +97,7 @@ class _GymScreenState extends State<GymScreen> {
             if (gym.isLoading)
               const SliverToBoxAdapter(child: Padding(
                 padding: EdgeInsets.all(32),
-                child: Center(child: CircularProgressIndicator(color: AppTheme.primary)),
+                child: AppLoading(),
               ))
             else if (gym.routines.isEmpty)
               SliverToBoxAdapter(child: _buildEmptyRoutines())
@@ -225,7 +226,7 @@ class _GymScreenState extends State<GymScreen> {
             child: NeonButton(
               label: 'NUEVA RUTINA',
               icon: Icons.add,
-              onPressed: () => _createRoutineFlow(context),
+              onPressed: _createRoutineFlow,
             ),
           ),
           const SizedBox(width: 12),
@@ -253,17 +254,10 @@ class _GymScreenState extends State<GymScreen> {
   }
 
   Widget _buildEmptyRoutines() {
-    return GlassCard(
-      width: double.infinity,
-      child: Column(
-        children: [
-          const Icon(Icons.fitness_center_outlined, size: 48, color: AppTheme.darkGrey),
-          const SizedBox(height: 16),
-          Text('No tienes rutinas', style: AppTheme.bodyLarge),
-          const SizedBox(height: 4),
-          Text('Crea tu primera rutina', style: AppTheme.bodyMedium),
-        ],
-      ),
+    return const EmptyStateCard(
+      icon: Icons.fitness_center_outlined,
+      title: 'No tienes rutinas',
+      subtitle: 'Crea tu primera rutina',
     );
   }
 

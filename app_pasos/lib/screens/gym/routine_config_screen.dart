@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../config/theme.dart';
 import '../../models/exercise.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/screen_top_bar.dart';
 
 class RoutineConfigResult {
   final String name;
@@ -142,22 +143,7 @@ class _RoutineConfigScreenState extends State<RoutineConfigScreen> {
   }
 
   Widget _buildTopBar() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white70),
-            onPressed: () => Navigator.pop(context),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            'CONFIGURAR RUTINA',
-            style: AppTheme.titleLarge.copyWith(letterSpacing: 2),
-          ),
-        ],
-      ),
-    );
+    return const ScreenTopBar(title: 'CONFIGURAR RUTINA');
   }
 
   Widget _buildNameField() {

@@ -1,7 +1,6 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 import '../config/api.dart';
 import '../models/route_card_template.dart';
 
@@ -65,16 +64,12 @@ class AuraCardService {
     );
   }
 
-  Future<File> downloadMapImage(String url, String filename) async {
+  Future<Uint8List> downloadMapImage(String url) async {
     final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 30));
     if (response.statusCode != 200) {
       throw Exception('Error al descargar imagen del mapa');
     }
-
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/${filename}_map.png');
-    await file.writeAsBytes(response.bodyBytes);
-    return file;
+    return response.bodyBytes;
   }
 
   Map<String, dynamic> _parseJson(String body) {

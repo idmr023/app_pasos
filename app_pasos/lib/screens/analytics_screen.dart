@@ -6,6 +6,8 @@ import '../config/theme.dart';
 import '../providers/auth_provider.dart';
 import '../providers/challenge_provider.dart';
 import '../widgets/glass_card.dart';
+import '../widgets/error_state.dart';
+import '../widgets/loading_states.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -96,7 +98,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   const SizedBox(height: 16),
                   Expanded(
                     child: challengeProv.isAnalyticsLoading
-                        ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
+                        ? const AppLoading()
                         : challengeProv.error != null
                             ? _buildErrorState(challengeProv)
                             : challengeProv.analytics.isEmpty
@@ -174,34 +176,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Widget _buildErrorState(ChallengeProvider challengeProv) {
-    final errMsg = challengeProv.error ?? 'Error al cargar datos';
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, size: 64, color: AppTheme.error),
-            const SizedBox(height: 16),
-            Text('Error', style: AppTheme.headlineMedium),
-            const SizedBox(height: 8),
-            Text(errMsg, style: AppTheme.bodyMedium, textAlign: TextAlign.center),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: _loadData,
-              icon: const Icon(Icons.refresh),
-              label: const Text('REINTENTAR'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primary,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-            ),
-          ],
-        ),
-      ),
+    return ErrorState(
+      message: challengeProv.error ?? 'Error al cargar datos',
+      onRetry: _loadData,
     );
   }
 

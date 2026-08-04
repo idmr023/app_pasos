@@ -7,10 +7,12 @@ import '../providers/auth_provider.dart';
 import '../providers/challenge_provider.dart';
 import '../providers/step_provider.dart';
 import '../widgets/glass_card.dart';
+import '../widgets/loading_states.dart';
 import '../widgets/step_ring.dart';
 import '../widgets/player_avatar.dart';
 import '../widgets/animated_counter.dart';
 import '../widgets/step_input_dialog.dart';
+import '../widgets/confirm_dialog.dart';
 
 
 class ChallengeRoomScreen extends StatefulWidget {
@@ -85,7 +87,7 @@ class _ChallengeRoomScreenState extends State<ChallengeRoomScreen> {
           child: Consumer2<ChallengeProvider, StepProvider>(
             builder: (context, challengeProv, stepProv, _) {
               if (challengeProv.isLoading && challengeProv.challengeDetail == null) {
-                return const Center(child: CircularProgressIndicator(color: AppTheme.primary));
+                return const AppLoading();
               }
 
               final detail = challengeProv.challengeDetail;
@@ -139,25 +141,13 @@ class _ChallengeRoomScreenState extends State<ChallengeRoomScreen> {
   }
 
   Future<bool> _confirmAction(String title, String message) async {
-    return await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF00101A),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        content: Text(message, style: const TextStyle(color: Colors.white70)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.white54)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(title.contains('Eliminar') ? 'Eliminar' : 'Salir', style: const TextStyle(color: Color(0xFFFF4D00))),
-          ),
-        ],
-      ),
-    ) ?? false;
+    return ConfirmDialog.show(
+      context,
+      title: title,
+      message: message,
+      confirmLabel: title.contains('Eliminar') ? 'Eliminar' : 'Salir',
+      destructive: true,
+    );
   }
 
   Widget _buildTopBar(ChallengeProvider challengeProv, challenge, creator, opponent) {

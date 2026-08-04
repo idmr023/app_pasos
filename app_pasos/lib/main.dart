@@ -12,12 +12,10 @@ import 'providers/route_provider.dart';
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
-import 'screens/home_screen.dart';
 import 'screens/challenge_create_screen.dart';
 import 'screens/challenge_join_screen.dart';
 import 'screens/challenge_room_screen.dart';
 import 'screens/analytics_screen.dart';
-import 'screens/profile_screen.dart';
 import 'screens/main_shell.dart';
 import 'screens/forgot_password_screen.dart';
 void main() async {
@@ -58,12 +56,10 @@ class AppPasosApp extends StatelessWidget {
           '/login': (context) => const LoginScreen(),
           '/register': (context) => const RegisterScreen(),
           '/main': (context) => const MainShell(),
-          '/home': (context) => const HomeScreen(),
           '/challenge-create': (context) => const ChallengeCreateScreen(),
           '/challenge-join': (context) => const ChallengeJoinScreen(),
           '/challenge-room': (context) => const ChallengeRoomScreen(),
           '/analytics': (context) => const AnalyticsScreen(),
-          '/profile': (context) => const ProfileScreen(),
           '/forgot-password': (context) => const ForgotPasswordScreen(),
         },
       ),

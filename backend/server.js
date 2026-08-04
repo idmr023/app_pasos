@@ -1,6 +1,8 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const dns = require('dns');
 require('dotenv').config();
 
@@ -16,8 +18,51 @@ const routeRoutes = require('./routes/routes');
 
 const app = express();
 
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+app.use(cors(allowedOrigins.length > 0
+  ? { origin: allowedOrigins }
+  : {}
+));
+app.use(express.json({ limit: '2mb' }));
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas peticiones, intenta de nuevo en unos minutos' },
+});
+
+app.use('/api', apiLimiter);
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos, intenta de nuevo en 15 minutos' },
+});
+
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/verify-security', authLimiter);
+
+const chatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Estás enviando mensajes muy rápido' },
+});
+
+app.use('/api/chat', chatLimiter);
 
 mongoose.connect(process.env.MONGODB_URI, {
   serverSelectionTimeoutMS: 5000,
@@ -37,6 +82,18 @@ app.use('/api/routes', routeRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'App Pasos API funcionando' });
+});
+
+app.use((req, res) => {
+  res.status(404).json({ error: 'Ruta no encontrada' });
+});
+
+app.use((err, req, res, next) => {
+  console.error('Error global:', err.message);
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'El payload es demasiado grande' });
+  }
+  res.status(err.status || 500).json({ error: 'Error interno del servidor' });
 });
 
 process.on('unhandledRejection', (reason, promise) => {

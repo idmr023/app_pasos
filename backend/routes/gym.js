@@ -1,6 +1,5 @@
 const express = require('express');
 const https = require('https');
-const dns = require('dns');
 const auth = require('../middleware/auth');
 const Routine = require('../models/Routine');
 const Workout = require('../models/Workout');
@@ -8,8 +7,7 @@ const PersonalRecord = require('../models/PersonalRecord');
 const Quote = require('../models/Quote');
 const User = require('../models/User');
 const Exercise = require('../models/Exercise');
-
-dns.setServers(['8.8.8.8', '1.1.1.1']);
+const { levelFromXp, bestTitleForLevel, getUserXpData } = require('../services/xpService');
 
 const EXERCISE_XP = 5;
 const STREAK_XP = 500;
@@ -207,7 +205,7 @@ router.get('/exercises', auth, async (req, res) => {
 
     res.json({ exercises, total: data.count });
   } catch (error) {
-    res.status(500).json({ error: 'Error al obtener ejercicios', message: error.message });
+    res.status(500).json({ error: 'Error al obtener ejercicios' });
   }
 });
 
@@ -292,21 +290,27 @@ router.post('/routines', auth, async (req, res) => {
     if (!name || !exercises || exercises.length === 0) {
       return res.status(400).json({ error: 'Nombre y ejercicios requeridos' });
     }
+    if (typeof name !== 'string' || name.trim().length < 1 || name.trim().length > 60) {
+      return res.status(400).json({ error: 'El nombre de la rutina debe tener entre 1 y 60 caracteres' });
+    }
+    if (exercises.length > 50) {
+      return res.status(400).json({ error: 'Máximo 50 ejercicios por rutina' });
+    }
 
-    const existing = await Routine.findOne({ user: req.user._id, name });
+    const existing = await Routine.findOne({ user: req.user._id, name: name.trim() });
     if (existing) {
       return res.status(409).json({ error: 'Ya tienes una rutina con ese nombre' });
     }
 
     const routine = new Routine({
       user: req.user._id,
-      name,
+      name: name.trim(),
       exercises: exercises.map((e, i) => ({
         exercise: e.exerciseId || e.exercise,
-        exerciseName: e.exerciseName || e.name || '',
-        sets: e.sets || 3,
-        reps: e.reps || '10',
-        restTime: e.restTime || 60,
+        exerciseName: (e.exerciseName || e.name || '').toString().slice(0, 200),
+        sets: Math.min(100, Math.max(1, parseInt(e.sets) || 3)),
+        reps: (e.reps || '10').toString().slice(0, 20),
+        restTime: Math.min(3600, Math.max(0, parseInt(e.restTime) || 60)),
         order: i
       })),
       isWarmup: isWarmup || false
@@ -363,12 +367,15 @@ router.put('/routines/:id', auth, async (req, res) => {
       routine.name = name;
     }
     if (exercises) {
+      if (exercises.length > 50) {
+        return res.status(400).json({ error: 'Máximo 50 ejercicios por rutina' });
+      }
       routine.exercises = exercises.map((e, i) => ({
         exercise: e.exerciseId || e.exercise,
-        exerciseName: e.exerciseName || e.name || '',
-        sets: e.sets || 3,
-        reps: e.reps || '10',
-        restTime: e.restTime || 60,
+        exerciseName: (e.exerciseName || e.name || '').toString().slice(0, 200),
+        sets: Math.min(100, Math.max(1, parseInt(e.sets) || 3)),
+        reps: (e.reps || '10').toString().slice(0, 20),
+        restTime: Math.min(3600, Math.max(0, parseInt(e.restTime) || 60)),
         order: i
       }));
     }
@@ -400,6 +407,13 @@ router.post('/workouts', auth, async (req, res) => {
   try {
     const { routineId, routineName, duration, exercises } = req.body;
 
+    if (duration !== undefined && (typeof duration !== 'number' || duration < 0 || duration > 86400)) {
+      return res.status(400).json({ error: 'Duración inválida' });
+    }
+    if (exercises && exercises.length > 50) {
+      return res.status(400).json({ error: 'Máximo 50 ejercicios por entrenamiento' });
+    }
+
     const workout = new Workout({
       user: req.user._id,
       routine: routineId || null,
@@ -408,10 +422,10 @@ router.post('/workouts', auth, async (req, res) => {
       duration: duration || 0,
       exercises: (exercises || []).map(e => ({
         exercise: e.exerciseId,
-        exerciseName: e.exerciseName || '',
-        setsCompleted: e.setsCompleted || 0,
-        repsCompleted: e.repsCompleted || '',
-        weightKg: e.weightKg || 0
+        exerciseName: (e.exerciseName || '').toString().slice(0, 200),
+        setsCompleted: Math.max(0, parseInt(e.setsCompleted) || 0),
+        repsCompleted: (e.repsCompleted || '').toString().slice(0, 50),
+        weightKg: Math.min(500, Math.max(0, parseFloat(e.weightKg) || 0))
       }))
     });
 
@@ -420,7 +434,7 @@ router.post('/workouts', auth, async (req, res) => {
     if (exercises && exercises.length > 0) {
       for (const e of exercises) {
         const w = parseFloat(e.weightKg) || 0;
-        if (w > 0 && e.exerciseId) {
+        if (w > 0 && w <= 500 && e.exerciseId) {
           const prev = await PersonalRecord.findOne({ user: req.user._id, exercise: e.exerciseId });
           if (!prev || w > prev.maxWeightKg) {
             await PersonalRecord.findOneAndUpdate(
@@ -453,18 +467,12 @@ router.post('/workouts', auth, async (req, res) => {
     const totalXp = exerciseXp + streakXp;
 
     if (totalXp > 0) {
-      req.user.xp = (req.user.xp || 0) + totalXp;
-      const REWARDS = {
-        10: 'Caminante', 20: 'Maratonista', 30: 'Ultramaratonista',
-        40: 'Leyenda', 50: 'Titán'
-      };
-      let l = 0;
-      while (1000 * (l + 1) * (l + 2) / 2 <= req.user.xp) l++;
-      req.user.level = l;
-      const bestTitle = Object.entries(REWARDS)
-        .filter(([level]) => l >= parseInt(level))
-        .sort(([a], [b]) => parseInt(b) - parseInt(a))[0];
-      if (bestTitle) req.user.title = bestTitle[1];
+      req.user.gymXp = (req.user.gymXp || 0) + totalXp;
+      const { totalXp: computedXp, level } = await getUserXpData(req.user);
+      req.user.xp = computedXp;
+      req.user.level = level;
+      const title = bestTitleForLevel(level);
+      if (title) req.user.title = title;
       await req.user.save();
     }
 
@@ -490,14 +498,18 @@ router.post('/personal-record', auth, async (req, res) => {
     if (!exerciseId || !weightKg) {
       return res.status(400).json({ error: 'exerciseId y weightKg requeridos' });
     }
+    const w = parseFloat(weightKg);
+    if (isNaN(w) || w <= 0 || w > 500) {
+      return res.status(400).json({ error: 'weightKg debe ser un número entre 0 y 500' });
+    }
 
     const record = await PersonalRecord.findOneAndUpdate(
       { user: req.user._id, exercise: exerciseId },
       {
         user: req.user._id,
         exercise: exerciseId,
-        exerciseName: exerciseName || '',
-        maxWeightKg: weightKg
+        exerciseName: (exerciseName || '').toString().slice(0, 200),
+        maxWeightKg: w
       },
       { upsert: true, new: true }
     );

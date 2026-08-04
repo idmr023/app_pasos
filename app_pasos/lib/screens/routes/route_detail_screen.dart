@@ -4,7 +4,9 @@ import '../../config/theme.dart';
 import '../../models/route.dart';
 import '../../providers/route_provider.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/confirm_dialog.dart';
 import '../share_aura/share_aura_screen.dart';
+import 'route_design_editor_screen.dart';
 
 class RouteDetailScreen extends StatelessWidget {
   final UserRoute route;
@@ -19,22 +21,27 @@ class RouteDetailScreen extends StatelessWidget {
         title: Text(route.title, style: AppTheme.titleMedium),
         actions: [
           IconButton(
+            icon: const Icon(Icons.palette_outlined, color: AppTheme.primary),
+            tooltip: 'Decorar ruta',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => RouteDesignEditorScreen(route: route)),
+              );
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
             onPressed: () async {
-              final confirmed = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  backgroundColor: AppTheme.surface,
-                  title: const Text('Eliminar ruta', style: TextStyle(color: Colors.white)),
-                  content: const Text('¿Estás seguro de eliminar esta ruta?', style: TextStyle(color: Colors.white70)),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-                    TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Eliminar', style: TextStyle(color: Colors.redAccent))),
-                  ],
-                ),
+              final confirmed = await ConfirmDialog.show(
+                context,
+                title: 'Eliminar ruta',
+                message: '¿Estás seguro de eliminar esta ruta?',
+                confirmLabel: 'Eliminar',
+                destructive: true,
               );
 
-              if (confirmed == true && context.mounted) {
+              if (confirmed && context.mounted) {
                 final success = await context.read<RouteProvider>().deleteRoute(route.id);
                 if (success && context.mounted) {
                   Navigator.pop(context);

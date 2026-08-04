@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../config/theme.dart';
 import '../providers/auth_provider.dart';
 import '../providers/xp_provider.dart';
 import '../providers/gym_provider.dart';
-import 'package:http/http.dart' as http;
-import '../config/api.dart';
 import '../providers/route_provider.dart';
 import '../widgets/glass_card.dart';
+import '../widgets/loading_states.dart';
 import '../widgets/player_avatar.dart';
+import '../widgets/strava_connect_dialog.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -145,6 +144,125 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Navigator.pushReplacementNamed(context, '/login');
   }
 
+  Future<void> _showChangePasswordDialog() async {
+    final currentCtrl = TextEditingController();
+    final newCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    bool saving = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: AppTheme.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Text('Cambiar contraseña', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: currentCtrl,
+                    obscureText: true,
+                    style: AppTheme.bodyLarge,
+                    decoration: const InputDecoration(
+                      labelText: 'Contraseña actual',
+                      prefixIcon: Icon(Icons.lock_outline, size: 20),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: newCtrl,
+                    obscureText: true,
+                    style: AppTheme.bodyLarge,
+                    decoration: const InputDecoration(
+                      labelText: 'Nueva contraseña',
+                      prefixIcon: Icon(Icons.lock_reset, size: 20),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: confirmCtrl,
+                    obscureText: true,
+                    style: AppTheme.bodyLarge,
+                    decoration: const InputDecoration(
+                      labelText: 'Confirmar nueva contraseña',
+                      prefixIcon: Icon(Icons.verified_user_outlined, size: 20),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Mínimo 6 caracteres. Al cambiarla, las demás sesiones quedarán cerradas.',
+                    style: TextStyle(color: AppTheme.darkGrey, fontSize: 12),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancelar', style: TextStyle(color: AppTheme.darkGrey)),
+              ),
+              ElevatedButton(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        final current = currentCtrl.text;
+                        final newPass = newCtrl.text;
+                        final confirm = confirmCtrl.text;
+
+                        if (newPass.length < 6) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('La contraseña debe tener al menos 6 caracteres'), backgroundColor: AppTheme.error),
+                          );
+                          return;
+                        }
+                        if (newPass != confirm) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Las contraseñas no coinciden'), backgroundColor: AppTheme.error),
+                          );
+                          return;
+                        }
+
+                        setDialogState(() => saving = true);
+                        final auth = context.read<AuthProvider>();
+                        final ok = await auth.changePassword(current, newPass);
+                        if (!dialogContext.mounted) return;
+                        setDialogState(() => saving = false);
+
+                        if (ok) {
+                          Navigator.pop(dialogContext);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Contraseña actualizada'), backgroundColor: AppTheme.secondary),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(auth.error ?? 'Error al cambiar la contraseña'), backgroundColor: AppTheme.error),
+                          );
+                        }
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: saving
+                    ? const InlineSpinner(size: 18)
+                    : const Text('Guardar', style: TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    currentCtrl.dispose();
+    newCtrl.dispose();
+    confirmCtrl.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
@@ -205,23 +323,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: () async {
-                  final token = context.read<AuthProvider>().token;
-                  if (token != null) {
-                    final response = await http.post(
-                      Uri.parse('${ApiConfig.baseUrl}/routes/strava/disconnect'),
-                      headers: {'Authorization': 'Bearer $token'},
-                    );
-                    if (!context.mounted) return;
-                    if (response.statusCode == 200) {
-                      await context.read<AuthProvider>().refreshProfile();
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Desconectado de Strava con éxito')),
-                      );
-                    }
-                  }
-                },
+                onPressed: _disconnectStrava,
                 icon: const Icon(Icons.link_off, color: AppTheme.error),
                 label: const Text('Desconectar Strava', style: TextStyle(color: AppTheme.error)),
                 style: OutlinedButton.styleFrom(
@@ -254,131 +356,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _connectStrava(BuildContext context) async {
-    final routeProv = context.read<RouteProvider>();
-    final result = await routeProv.initStravaConnection();
-    if (!context.mounted) return;
-    if (result == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Error al iniciar conexión con Strava'), backgroundColor: AppTheme.error),
-      );
-      return;
+    final connected = await StravaConnectDialog.show(context);
+    if (connected && context.mounted) {
+      await context.read<AuthProvider>().refreshProfile();
     }
-
-    final url = result['url'] as String;
-    final state = result['state'] as String;
-
-    if (!context.mounted) return;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        bool polling = false;
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: AppTheme.surface,
-              title: const Text('Conectar con Strava', style: TextStyle(color: Colors.white)),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.bolt, size: 48, color: Color(0xFFFC4C02)),
-                    const SizedBox(height: 16),
-                    const Text(
-                      '1. Toca el botón para abrir Strava en el navegador',
-                      style: TextStyle(color: Colors.white70, fontSize: 14),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '2. Autoriza la aplicación',
-                      style: TextStyle(color: Colors.white70, fontSize: 14),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '3. Vuelve a la app automáticamente',
-                      style: TextStyle(color: Colors.white70, fontSize: 14),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 24),
-                    if (!polling) ...[
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () async {
-                            final uri = Uri.parse(url);
-                            if (await canLaunchUrl(uri)) {
-                              await launchUrl(uri, mode: LaunchMode.externalApplication);
-                              setDialogState(() => polling = true);
-                              _waitForStravaConnection(ctx, state, routeProv);
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('No se pudo abrir el navegador')),
-                              );
-                            }
-                          },
-                          icon: const Icon(Icons.open_in_browser, color: Colors.white),
-                          label: const Text('Abrir Strava', style: TextStyle(color: Colors.white)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFFC4C02),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                        ),
-                      ),
-                    ] else ...[
-                      const CircularProgressIndicator(color: Color(0xFFFC4C02)),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Esperando autorización...\nVuelve a la app después de autorizar en el navegador.',
-                        style: TextStyle(color: Colors.white70, fontSize: 13),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cerrar'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
   }
 
-  Future<void> _waitForStravaConnection(BuildContext dialogContext, String state, RouteProvider routeProv) async {
-    const maxAttempts = 60;
-    for (int i = 0; i < maxAttempts; i++) {
-      await Future.delayed(const Duration(seconds: 2));
-      final connected = await routeProv.checkStravaStatus(state);
-      if (connected) {
-        if (!dialogContext.mounted) return;
-        Navigator.pop(dialogContext);
-        if (!mounted) return;
-        await routeProv.syncStrava();
-        if (!mounted) return;
-        await context.read<AuthProvider>().refreshProfile();
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('¡Conectado a Strava con éxito!')),
-        );
-        return;
-      }
-    }
+  Future<void> _disconnectStrava() async {
+    final routeProv = context.read<RouteProvider>();
+    final ok = await routeProv.disconnectStrava();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Tiempo de espera agotado. Intenta de nuevo.'),
-        backgroundColor: AppTheme.error,
-      ),
-    );
+    if (ok) {
+      await context.read<AuthProvider>().refreshProfile();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Desconectado de Strava con éxito')),
+      );
+    }
   }
 
   Widget _buildTopBar() {
@@ -386,9 +380,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text('PERFIL', style: AppTheme.titleLarge.copyWith(letterSpacing: 2)),
-        IconButton(
-          icon: const Icon(Icons.logout, color: AppTheme.darkGrey),
-          onPressed: _logout,
+        Row(
+          children: [
+            IconButton(
+              tooltip: 'Cambiar contraseña',
+              icon: const Icon(Icons.lock_outline, color: AppTheme.darkGrey),
+              onPressed: _showChangePasswordDialog,
+            ),
+            IconButton(
+              tooltip: 'Cerrar sesión',
+              icon: const Icon(Icons.logout, color: AppTheme.darkGrey),
+              onPressed: _logout,
+            ),
+          ],
         ),
       ],
     );
@@ -858,7 +862,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
         child: _isSaving
-            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+            ? const InlineSpinner()
             : const Text('GUARDAR', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 1)),
       ),
     );

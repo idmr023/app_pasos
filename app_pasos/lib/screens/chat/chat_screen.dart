@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../providers/chat_provider.dart';
 import '../../models/chat_message.dart';
+import '../../widgets/confirm_dialog.dart';
+import '../../widgets/loading_states.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -79,7 +81,7 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Consumer<ChatProvider>(
                 builder: (_, chat, __) {
                   if (!chat.initialized) {
-                    return const Center(child: CircularProgressIndicator(color: AppTheme.primary));
+                    return const AppLoading();
                   }
 
                   if (chat.messages.isEmpty) {
@@ -311,28 +313,17 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showClearDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('¿Borrar conversación?', style: TextStyle(color: AppTheme.white)),
-        content: const Text('Se eliminará todo el historial del chat.', style: TextStyle(color: AppTheme.grey)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar', style: TextStyle(color: AppTheme.darkGrey)),
-          ),
-          TextButton(
-            onPressed: () {
-              context.read<ChatProvider>().clearConversation();
-              Navigator.pop(ctx);
-            },
-            child: const Text('Borrar', style: TextStyle(color: AppTheme.error)),
-          ),
-        ],
-      ),
-    );
+    ConfirmDialog.show(
+      context,
+      title: '¿Borrar conversación?',
+      message: 'Se eliminará todo el historial del chat.',
+      confirmLabel: 'Borrar',
+      destructive: true,
+    ).then((confirmed) {
+      if (confirmed && context.mounted) {
+        context.read<ChatProvider>().clearConversation();
+      }
+    });
   }
 }
 

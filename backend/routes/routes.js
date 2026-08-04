@@ -1,8 +1,12 @@
 const express = require('express');
 const crypto = require('crypto');
+const axios = require('axios');
+const polyline = require('@mapbox/polyline');
 const auth = require('../middleware/auth');
 const Route = require('../models/Route');
 const StravaState = require('../models/StravaState');
+const User = require('../models/User');
+const { encrypt, decrypt } = require('../utils/tokenEncryption');
 
 const router = express.Router();
 
@@ -92,6 +96,15 @@ router.post('/', auth, async (req, res) => {
     if (!coordinates || coordinates.length < 2) {
       return res.status(400).json({ error: 'Se requieren al menos 2 coordenadas' });
     }
+    if (coordinates.length > 10000) {
+      return res.status(400).json({ error: 'Demasiadas coordenadas' });
+    }
+    if (title !== undefined && (typeof title !== 'string' || title.trim().length > 100)) {
+      return res.status(400).json({ error: 'El título no puede superar los 100 caracteres' });
+    }
+    if (startDate !== undefined && startDate && isNaN(new Date(startDate).getTime())) {
+      return res.status(400).json({ error: 'Fecha de inicio inválida' });
+    }
 
     const cleanCoords = coordinates.map(c => ({
       lat: parseFloat(c.lat),
@@ -133,7 +146,7 @@ router.post('/', auth, async (req, res) => {
     const { coordinates: _, ...routeSummary } = route.toObject();
     res.status(201).json({ route: { ...routeSummary, coordinates: cleanCoords } });
   } catch (error) {
-    res.status(500).json({ error: 'Error al crear ruta', message: error.message });
+    res.status(500).json({ error: 'Error al crear ruta' });
   }
 });
 
@@ -248,28 +261,32 @@ router.get('/:id/map-card', auth, async (req, res) => {
 
     res.json({ url, stats, template, width, height });
   } catch (error) {
-    res.status(500).json({ error: 'Error al generar card', message: error.message });
+    res.status(500).json({ error: 'Error al generar card' });
   }
 });
 
 router.post('/strava/init', auth, async (req, res) => {
-  const clientId = process.env.STRAVA_CLIENT_ID;
-  const redirectUri = process.env.STRAVA_REDIRECT_URI || 'http://localhost:3000/api/routes/strava/callback';
-  if (!clientId) {
-    return res.status(400).json({ error: 'Strava Client ID no configurado en el servidor' });
+  try {
+    const clientId = process.env.STRAVA_CLIENT_ID;
+    const redirectUri = process.env.STRAVA_REDIRECT_URI || 'http://localhost:3000/api/routes/strava/callback';
+    if (!clientId) {
+      return res.status(400).json({ error: 'Strava Client ID no configurado en el servidor' });
+    }
+
+    const state = crypto.randomBytes(24).toString('hex');
+
+    await StravaState.create({
+      state,
+      user: req.user._id,
+      connected: false
+    });
+
+    const url = `https://www.strava.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}&approval_prompt=force&scope=read,activity:read_all`;
+
+    res.json({ url, state });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al iniciar conexión con Strava' });
   }
-
-  const state = crypto.randomBytes(24).toString('hex');
-
-  await StravaState.create({
-    state,
-    user: req.user._id,
-    connected: false
-  });
-
-  const url = `https://www.strava.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}&approval_prompt=force&scope=read,activity:read_all`;
-
-  res.json({ url, state });
 });
 
 router.get('/strava/callback', async (req, res) => {
@@ -283,7 +300,6 @@ router.get('/strava/callback', async (req, res) => {
   }
 
   try {
-    const axios = require('axios');
     const stravaState = await StravaState.findOne({ state });
     if (!stravaState) {
       return res.send(`
@@ -315,12 +331,11 @@ router.get('/strava/callback', async (req, res) => {
       `);
     }
 
-    const User = require('../models/User');
     const user = await User.findById(stravaState.user);
     if (user) {
       user.strava = {
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token,
+        accessToken: encrypt(data.access_token),
+        refreshToken: encrypt(data.refresh_token),
         expiresAt: data.expires_at,
         athleteId: data.athlete?.id || null
       };
@@ -344,7 +359,7 @@ router.get('/strava/callback', async (req, res) => {
   } catch (err) {
     res.send(`
       <html><body style="background:#0F0F1E;color:white;font-family:sans-serif;text-align:center;padding-top:50px;">
-        <h3>Error al conectar con Strava</h3><p>${err.response?.data?.message || err.message}</p>
+        <h3>Error al conectar con Strava</h3><p>Vuelve a intentar desde la aplicación.</p>
       </body></html>
     `);
   }
@@ -363,25 +378,28 @@ router.get('/strava/status/:state', auth, async (req, res) => {
 });
 
 router.post('/strava/sync', auth, async (req, res) => {
-  const axios = require('axios');
   try {
     const user = req.user;
     if (!user.strava || !user.strava.accessToken) {
       return res.status(400).json({ error: 'Strava no está conectado' });
     }
 
-    let token = user.strava.accessToken;
+    let token = decrypt(user.strava.accessToken);
+
+    if (!token && user.strava.expiresAt && Date.now() / 1000 > user.strava.expiresAt) {
+      return res.status(401).json({ error: 'La conexión con Strava expiró, vuelve a conectar' });
+    }
 
     if (Date.now() / 1000 > user.strava.expiresAt) {
       const refreshRes = await axios.post('https://www.strava.com/oauth/token', {
         client_id: process.env.STRAVA_CLIENT_ID,
         client_secret: process.env.STRAVA_CLIENT_SECRET,
         grant_type: 'refresh_token',
-        refresh_token: user.strava.refreshToken
+        refresh_token: decrypt(user.strava.refreshToken)
       });
       token = refreshRes.data.access_token;
-      user.strava.accessToken = token;
-      user.strava.refreshToken = refreshRes.data.refresh_token;
+      user.strava.accessToken = encrypt(token);
+      user.strava.refreshToken = encrypt(refreshRes.data.refresh_token);
       user.strava.expiresAt = refreshRes.data.expires_at;
       await user.save();
     }
@@ -394,7 +412,6 @@ router.post('/strava/sync', auth, async (req, res) => {
     for (const act of activitiesRes.data) {
       const exists = await Route.findOne({ user: user._id, stravaActivityId: act.id });
       if (!exists && act.map && act.map.summary_polyline) {
-        const polyline = require('@mapbox/polyline');
         const decoded = polyline.decode(act.map.summary_polyline);
         const coordinates = decoded.map(([lat, lng]) => ({
           lat,
@@ -435,7 +452,7 @@ router.post('/strava/sync', auth, async (req, res) => {
 
     res.json({ success: true, count: importedCount });
   } catch (error) {
-    res.status(500).json({ error: 'Error al sincronizar con Strava', message: error.response?.data?.message || error.message });
+    res.status(500).json({ error: 'Error al sincronizar con Strava', message: error.response?.data?.message || 'Intenta de nuevo más tarde' });
   }
 });
 

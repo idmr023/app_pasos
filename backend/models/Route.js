@@ -82,5 +82,6 @@ const routeSchema = new mongoose.Schema({
 });
 
 routeSchema.index({ user: 1, createdAt: -1 });
+routeSchema.index({ user: 1, stravaActivityId: 1 });
 
 module.exports = mongoose.model('Route', routeSchema);
