@@ -240,8 +240,8 @@ function buildMapboxPolyline(route) {
 }
 
 function buildMapboxStaticUrl({ style, width, height, mapboxToken, route, lineColor }) {
-  const encodedPolyline = buildMapboxPolyline(route);
-  const lineLayer = `path-${lineColor}-4(${encodedPolyline})`;
+  const encodedPolyline = encodeURIComponent(buildMapboxPolyline(route));
+  const lineLayer = `path-4+${lineColor}-1(${encodedPolyline})`;
   return `https://api.mapbox.com/styles/v1/mapbox/${style}/static/${lineLayer}/auto/${width}x${height}@2x?padding=40&access_token=${mapboxToken}`;
 }
 
