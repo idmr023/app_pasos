@@ -251,8 +251,8 @@ router.get('/:id/map-card', auth, async (req, res) => {
     if (!route) return res.status(404).json({ error: 'Ruta no encontrada' });
 
     const template = req.query.template || 'cyberpunk';
-    const width = Math.min(parseInt(req.query.width) || 1080, 4096);
-    const height = Math.min(parseInt(req.query.height) || 1350, 4096);
+    const width = Math.min(parseInt(req.query.width) || 1080, 1280);
+    const height = Math.min(parseInt(req.query.height) || 1280, 1280);
     const mapboxToken = process.env.MAPBOX_ACCESS_TOKEN;
 
     if (!mapboxToken) {
@@ -300,8 +300,8 @@ router.get('/:id/map-card/image', auth, async (req, res) => {
     if (!route) return res.status(404).json({ error: 'Ruta no encontrada' });
 
     const template = req.query.template || 'cyberpunk';
-    const width = Math.min(parseInt(req.query.width) || 1080, 4096);
-    const height = Math.min(parseInt(req.query.height) || 1350, 4096);
+    const width = Math.min(parseInt(req.query.width) || 1080, 1280);
+    const height = Math.min(parseInt(req.query.height) || 1280, 1280);
     const mapboxToken = process.env.MAPBOX_ACCESS_TOKEN;
 
     if (!mapboxToken) {

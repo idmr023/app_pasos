@@ -59,7 +59,7 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
         widget.routeId,
         template: _selectedTemplate,
         width: 1080,
-        height: 1350,
+        height: 1280,
       );
       final image = await AuraCardComposer.loadImageFromBytes(mapBytes);
 
@@ -83,7 +83,7 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
           },
           template: _selectedTemplate,
           width: 1080,
-          height: 1350,
+          height: 1280,
           templateConfig: templateConfig,
         );
         _mapImage = image;

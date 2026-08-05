@@ -31,7 +31,7 @@ class AuraCardService {
     String routeId, {
     String template = 'cyberpunk',
     int width = 1080,
-    int height = 1350,
+    int height = 1280,
   }) async {
     final uri = Uri.parse(
         '${ApiConfig.baseUrl}/routes/$routeId/map-card')
@@ -76,7 +76,7 @@ class AuraCardService {
     String routeId, {
     String template = 'cyberpunk',
     int width = 1080,
-    int height = 1350,
+    int height = 1280,
   }) async {
     final uri = Uri.parse('${ApiConfig.baseUrl}/routes/$routeId/map-card/image').replace(
       queryParameters: {
