@@ -59,6 +59,19 @@ function computeStats(coordinates) {
   };
 }
 
+function computePaceFromDistanceAndTime(distanceMeters, durationSeconds) {
+  if (!distanceMeters || !durationSeconds) {
+    return 0;
+  }
+
+  const distanceKm = distanceMeters / 1000;
+  if (distanceKm <= 0) {
+    return 0;
+  }
+
+  return Math.round(durationSeconds / distanceKm);
+}
+
 router.get('/', auth, async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 50, 100);
@@ -444,6 +457,25 @@ router.post('/strava/sync', auth, async (req, res) => {
 
         if (coordinates.length >= 2) {
           const stats = computeStats(coordinates);
+          const durationSeconds = Math.round(act.moving_time || stats.duration);
+          const distanceMeters = Math.round(act.distance || stats.distance);
+          const averagePace = computePaceFromDistanceAndTime(distanceMeters, durationSeconds) || stats.averagePace;
+
+          let calories = Number.isFinite(act.calories) ? Math.round(act.calories) : 0;
+          if (!calories) {
+            try {
+              const detailRes = await axios.get(`https://www.strava.com/api/v3/activities/${act.id}`, {
+                headers: { Authorization: `Bearer ${token}` }
+              });
+              const detailedCalories = detailRes.data?.calories;
+              if (Number.isFinite(detailedCalories)) {
+                calories = Math.round(detailedCalories);
+              }
+            } catch (detailError) {
+              console.log(`[Strava sync] could not fetch detail for activity ${act.id}:`, detailError.response?.data || detailError.message);
+            }
+          }
+
           let actType = 'run';
           if (act.type === 'Ride' || act.sport_type === 'Ride') actType = 'ride';
           else if (act.type === 'Walk' || act.sport_type === 'Walk') actType = 'walk';
@@ -457,13 +489,13 @@ router.post('/strava/sync', auth, async (req, res) => {
             coordinates,
             activityType: actType,
             startDate: act.start_date ? new Date(act.start_date) : new Date(),
-            calories: act.calories ? Math.round(act.calories) : 0,
+            calories,
             averageHeartRate: act.average_heartrate ? Math.round(act.average_heartrate) : 0,
             maxHeartRate: act.max_heartrate ? Math.round(act.max_heartrate) : 0,
-            distance: Math.round(act.distance || stats.distance),
-            duration: Math.round(act.moving_time || stats.duration),
+            distance: distanceMeters,
+            duration: durationSeconds,
             elevationGain: Math.round(act.total_elevation_gain || stats.elevationGain),
-            averagePace: stats.averagePace
+            averagePace
           });
           await newRoute.save();
           importedCount++;
