@@ -6,9 +6,11 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:gal/gal.dart';
 import '../../config/theme.dart';
+import '../../models/route.dart';
 import '../../models/route_card_template.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/aura_card_service.dart';
+import '../../services/route_service.dart';
 import '../../widgets/aura_card_composer.dart';
 import '../../widgets/loading_states.dart';
 import '../../widgets/template_selector.dart';
@@ -49,22 +51,41 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
       if (auth.token == null) throw Exception('No autenticado');
 
       final service = AuraCardService(auth.token!);
-      final data = await service.getMapCardData(
-        widget.routeId,
-        template: _selectedTemplate,
-      );
+      final routeService = RouteService(auth.token!);
+      final route = await routeService.getRoute(widget.routeId);
+      final templateConfig = getTemplateById(_selectedTemplate);
 
       final mapBytes = await service.downloadMapImageFromBackend(
         widget.routeId,
         template: _selectedTemplate,
-        width: data.width,
-        height: data.height,
+        width: 1080,
+        height: 1350,
       );
       final image = await AuraCardComposer.loadImageFromBytes(mapBytes);
 
       if (!mounted) return;
       setState(() {
-        _cardData = data;
+        _cardData = AuraCardData(
+          imageUrl: '',
+          stats: {
+            'title': route.title,
+            'distance': route.distance,
+            'duration': route.duration,
+            'elevationGain': route.elevationGain,
+            'averagePace': route.averagePace,
+            'averageHeartRate': route.averageHeartRate,
+            'maxHeartRate': route.maxHeartRate,
+            'calories': route.calories,
+            'caloriesSource': route.caloriesSource,
+            'activityType': route.activityType,
+            'startDate': route.startDate?.toIso8601String(),
+            'source': route.source,
+          },
+          template: _selectedTemplate,
+          width: 1080,
+          height: 1350,
+          templateConfig: templateConfig,
+        );
         _mapImage = image;
         _isLoading = false;
       });
