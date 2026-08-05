@@ -293,6 +293,13 @@ router.get('/:id/map-card', auth, async (req, res) => {
 
 router.get('/:id/map-card/image', auth, async (req, res) => {
   try {
+    console.log('[Map card] image request', {
+      routeId: req.params.id,
+      template: req.query.template || 'cyberpunk',
+      width: req.query.width,
+      height: req.query.height
+    });
+
     const route = await Route.findOne({ _id: req.params.id, user: req.user._id });
     if (!route) return res.status(404).json({ error: 'Ruta no encontrada' });
 
@@ -324,8 +331,13 @@ router.get('/:id/map-card/image', auth, async (req, res) => {
     const encoded = encodeURIComponent(JSON.stringify(geojson));
     const url = `https://api.mapbox.com/styles/v1/mapbox/${style}/static/geojson(${encoded})/auto/${width}x${height}@2x?padding=40&access_token=${mapboxToken}`;
 
-    const imageRes = await axios.get(url, { responseType: 'arraybuffer' });
+    const imageRes = await axios.get(url, { responseType: 'arraybuffer', validateStatus: () => true });
     if (imageRes.status !== 200) {
+      console.log('[Map card] mapbox non-200 response', {
+        status: imageRes.status,
+        contentType: imageRes.headers?.['content-type'],
+        body: Buffer.from(imageRes.data || []).toString('utf8').slice(0, 300)
+      });
       return res.status(502).json({ error: 'Mapbox no devolvió la imagen' });
     }
 
@@ -333,6 +345,13 @@ router.get('/:id/map-card/image', auth, async (req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=300');
     return res.status(200).send(Buffer.from(imageRes.data));
   } catch (error) {
+    console.log('[Map card] image error', {
+      message: error.message,
+      status: error.response?.status,
+      data: typeof error.response?.data === 'string'
+        ? error.response.data.slice(0, 300)
+        : error.response?.data
+    });
     const status = error.response?.status || 500;
     const message = error.response?.data?.message || error.message || 'Error al generar card';
     res.status(status).json({ error: 'Error al generar card', message });
