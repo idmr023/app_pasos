@@ -235,6 +235,16 @@ const MAPBOX_LINE_COLORS = {
   cinematic: 'EAB308'
 };
 
+function buildMapboxPolyline(route) {
+  return polyline.encode(route.coordinates.map(c => [c.lat, c.lng]));
+}
+
+function buildMapboxStaticUrl({ style, width, height, mapboxToken, route, lineColor }) {
+  const encodedPolyline = buildMapboxPolyline(route);
+  const lineLayer = `path-${lineColor}-4(${encodedPolyline})`;
+  return `https://api.mapbox.com/styles/v1/mapbox/${style}/static/${lineLayer}/auto/${width}x${height}@2x?padding=40&access_token=${mapboxToken}`;
+}
+
 router.get('/:id/map-card', auth, async (req, res) => {
   try {
     const route = await Route.findOne({ _id: req.params.id, user: req.user._id });
@@ -255,21 +265,7 @@ router.get('/:id/map-card', auth, async (req, res) => {
 
     const style = MAPBOX_STYLES[template] || 'dark-v11';
     const lineColor = MAPBOX_LINE_COLORS[template] || '00D4FF';
-
-    const coords = route.coordinates.map(c => [c.lng, c.lat]);
-
-    const geojson = {
-      type: 'Feature',
-      properties: {},
-      geometry: {
-        type: 'LineString',
-        coordinates: coords
-      }
-    };
-
-    const encoded = encodeURIComponent(JSON.stringify(geojson));
-
-    const url = `https://api.mapbox.com/styles/v1/mapbox/${style}/static/geojson(${encoded})/auto/${width}x${height}@2x?padding=40&access_token=${mapboxToken}`;
+    const url = buildMapboxStaticUrl({ style, width, height, mapboxToken, route, lineColor });
 
     const stats = {
       title: route.title,
@@ -317,19 +313,8 @@ router.get('/:id/map-card/image', auth, async (req, res) => {
     }
 
     const style = MAPBOX_STYLES[template] || 'dark-v11';
-    const coords = route.coordinates.map(c => [c.lng, c.lat]);
-
-    const geojson = {
-      type: 'Feature',
-      properties: {},
-      geometry: {
-        type: 'LineString',
-        coordinates: coords
-      }
-    };
-
-    const encoded = encodeURIComponent(JSON.stringify(geojson));
-    const url = `https://api.mapbox.com/styles/v1/mapbox/${style}/static/geojson(${encoded})/auto/${width}x${height}@2x?padding=40&access_token=${mapboxToken}`;
+    const lineColor = MAPBOX_LINE_COLORS[template] || '00D4FF';
+    const url = buildMapboxStaticUrl({ style, width, height, mapboxToken, route, lineColor });
 
     const imageRes = await axios.get(url, { responseType: 'arraybuffer', validateStatus: () => true });
     if (imageRes.status !== 200) {
