@@ -111,6 +111,13 @@ class RouteDetailScreen extends StatelessWidget {
                           _buildStatItem('FCMed', '${route.averageHeartRate} bpm'),
                         ],
                       ),
+                      const SizedBox(height: 12),
+                      Center(
+                        child: Text(
+                          'Origen calorías: ${route.caloriesSource}',
+                          style: const TextStyle(color: Colors.white54, fontSize: 11),
+                        ),
+                      ),
                     ],
                   ),
                 ),

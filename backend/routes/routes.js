@@ -72,6 +72,18 @@ function computePaceFromDistanceAndTime(distanceMeters, durationSeconds) {
   return Math.round(durationSeconds / distanceKm);
 }
 
+function normalizeRouteStats(route) {
+  if (!route) return route;
+  const normalized = { ...route };
+  if (!normalized.averagePace && normalized.distance > 0 && normalized.duration > 0) {
+    normalized.averagePace = computePaceFromDistanceAndTime(normalized.distance, normalized.duration);
+  }
+  if (!normalized.caloriesSource) {
+    normalized.caloriesSource = normalized.calories > 0 ? 'detail' : 'missing';
+  }
+  return normalized;
+}
+
 router.get('/', auth, async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 50, 100);
@@ -81,7 +93,7 @@ router.get('/', auth, async (req, res) => {
       .select('-coordinates')
       .lean();
 
-    res.json({ routes });
+    res.json({ routes: routes.map(normalizeRouteStats) });
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener rutas' });
   }
@@ -96,7 +108,7 @@ router.get('/:id', auth, async (req, res) => {
 
     if (!route) return res.status(404).json({ error: 'Ruta no encontrada' });
 
-    res.json({ route });
+    res.json({ route: normalizeRouteStats(route) });
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener ruta' });
   }
@@ -149,6 +161,7 @@ router.post('/', auth, async (req, res) => {
       activityType: activityType || 'run',
       startDate: startDate ? new Date(startDate) : (cleanCoords[0].timestamp ? new Date(cleanCoords[0].timestamp) : new Date()),
       calories: parseInt(calories) || 0,
+      caloriesSource: parseInt(calories) > 0 ? 'detail' : 'missing',
       averageHeartRate: avgHR || parseInt(heartRate) || 0,
       maxHeartRate: maxHR,
       ...stats,
@@ -275,6 +288,54 @@ router.get('/:id/map-card', auth, async (req, res) => {
     res.json({ url, stats, template, width, height });
   } catch (error) {
     res.status(500).json({ error: 'Error al generar card' });
+  }
+});
+
+router.get('/:id/map-card/image', auth, async (req, res) => {
+  try {
+    const route = await Route.findOne({ _id: req.params.id, user: req.user._id });
+    if (!route) return res.status(404).json({ error: 'Ruta no encontrada' });
+
+    const template = req.query.template || 'cyberpunk';
+    const width = Math.min(parseInt(req.query.width) || 1080, 4096);
+    const height = Math.min(parseInt(req.query.height) || 1350, 4096);
+    const mapboxToken = process.env.MAPBOX_ACCESS_TOKEN;
+
+    if (!mapboxToken) {
+      return res.status(400).json({ error: 'Mapbox token no configurado en el servidor' });
+    }
+
+    if (route.coordinates.length < 2) {
+      return res.status(400).json({ error: 'La ruta necesita al menos 2 coordenadas' });
+    }
+
+    const style = MAPBOX_STYLES[template] || 'dark-v11';
+    const coords = route.coordinates.map(c => [c.lng, c.lat]);
+
+    const geojson = {
+      type: 'Feature',
+      properties: {},
+      geometry: {
+        type: 'LineString',
+        coordinates: coords
+      }
+    };
+
+    const encoded = encodeURIComponent(JSON.stringify(geojson));
+    const url = `https://api.mapbox.com/styles/v1/mapbox/${style}/static/geojson(${encoded})/auto/${width}x${height}@2x?padding=40&access_token=${mapboxToken}`;
+
+    const imageRes = await axios.get(url, { responseType: 'arraybuffer' });
+    if (imageRes.status !== 200) {
+      return res.status(502).json({ error: 'Mapbox no devolvió la imagen' });
+    }
+
+    res.setHeader('Content-Type', imageRes.headers['content-type'] || 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    return res.status(200).send(Buffer.from(imageRes.data));
+  } catch (error) {
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.message || error.message || 'Error al generar card';
+    res.status(status).json({ error: 'Error al generar card', message });
   }
 });
 
@@ -444,8 +505,8 @@ router.post('/strava/sync', auth, async (req, res) => {
 
     let importedCount = 0;
     for (const act of activitiesRes.data) {
-      const exists = await Route.findOne({ user: user._id, stravaActivityId: act.id });
-      if (!exists && act.map && act.map.summary_polyline) {
+      const existingRoute = await Route.findOne({ user: user._id, stravaActivityId: act.id });
+      if (act.map && act.map.summary_polyline) {
         const decoded = polyline.decode(act.map.summary_polyline);
         const coordinates = decoded.map(([lat, lng]) => ({
           lat,
@@ -462,6 +523,7 @@ router.post('/strava/sync', auth, async (req, res) => {
           const averagePace = computePaceFromDistanceAndTime(distanceMeters, durationSeconds) || stats.averagePace;
 
           let calories = Number.isFinite(act.calories) ? Math.round(act.calories) : 0;
+          let caloriesSource = calories > 0 ? 'summary' : 'missing';
           if (!calories) {
             try {
               const detailRes = await axios.get(`https://www.strava.com/api/v3/activities/${act.id}`, {
@@ -470,35 +532,76 @@ router.post('/strava/sync', auth, async (req, res) => {
               const detailedCalories = detailRes.data?.calories;
               if (Number.isFinite(detailedCalories)) {
                 calories = Math.round(detailedCalories);
+                caloriesSource = calories > 0 ? 'detail' : 'missing';
+                console.log(`[Strava sync] activity ${act.id} calories from detail: ${calories}`);
+              } else {
+                console.log(`[Strava sync] activity ${act.id} detail did not include calories`);
               }
             } catch (detailError) {
               console.log(`[Strava sync] could not fetch detail for activity ${act.id}:`, detailError.response?.data || detailError.message);
             }
           }
+          if (!calories) {
+            caloriesSource = 'missing';
+          }
+          console.log(`[Strava sync] activity ${act.id} caloriesSource=${caloriesSource} calories=${calories}`);
 
           let actType = 'run';
           if (act.type === 'Ride' || act.sport_type === 'Ride') actType = 'ride';
           else if (act.type === 'Walk' || act.sport_type === 'Walk') actType = 'walk';
           else if (act.type === 'Hike' || act.sport_type === 'Hike') actType = 'hike';
 
-          const newRoute = new Route({
-            user: user._id,
-            title: act.name || 'Actividad Strava',
-            source: 'strava',
-            stravaActivityId: act.id,
-            coordinates,
-            activityType: actType,
-            startDate: act.start_date ? new Date(act.start_date) : new Date(),
-            calories,
-            averageHeartRate: act.average_heartrate ? Math.round(act.average_heartrate) : 0,
-            maxHeartRate: act.max_heartrate ? Math.round(act.max_heartrate) : 0,
-            distance: distanceMeters,
-            duration: durationSeconds,
-            elevationGain: Math.round(act.total_elevation_gain || stats.elevationGain),
-            averagePace
-          });
-          await newRoute.save();
-          importedCount++;
+          if (!existingRoute) {
+            const newRoute = new Route({
+              user: user._id,
+              title: act.name || 'Actividad Strava',
+              source: 'strava',
+              stravaActivityId: act.id,
+              coordinates,
+              activityType: actType,
+              startDate: act.start_date ? new Date(act.start_date) : new Date(),
+              calories,
+              caloriesSource,
+              averageHeartRate: act.average_heartrate ? Math.round(act.average_heartrate) : 0,
+              maxHeartRate: act.max_heartrate ? Math.round(act.max_heartrate) : 0,
+              distance: distanceMeters,
+              duration: durationSeconds,
+              elevationGain: Math.round(act.total_elevation_gain || stats.elevationGain),
+              averagePace
+            });
+            await newRoute.save();
+            importedCount++;
+          } else {
+            let updated = false;
+            if (!existingRoute.coordinates?.length && coordinates.length >= 2) {
+              existingRoute.coordinates = coordinates;
+              updated = true;
+            }
+            if (!existingRoute.distance) {
+              existingRoute.distance = distanceMeters;
+              updated = true;
+            }
+            if (!existingRoute.duration) {
+              existingRoute.duration = durationSeconds;
+              updated = true;
+            }
+            if (!existingRoute.averagePace && averagePace) {
+              existingRoute.averagePace = averagePace;
+              updated = true;
+            }
+            if (!existingRoute.calories && calories) {
+              existingRoute.calories = calories;
+              updated = true;
+            }
+            if (!existingRoute.caloriesSource && caloriesSource) {
+              existingRoute.caloriesSource = caloriesSource;
+              updated = true;
+            }
+            if (updated) {
+              await existingRoute.save();
+              importedCount++;
+            }
+          }
         }
       }
     }

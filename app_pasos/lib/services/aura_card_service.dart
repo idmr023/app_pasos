@@ -72,6 +72,32 @@ class AuraCardService {
     return response.bodyBytes;
   }
 
+  Future<Uint8List> downloadMapImageFromBackend(
+    String routeId, {
+    String template = 'cyberpunk',
+    int width = 1080,
+    int height = 1350,
+  }) async {
+    final uri = Uri.parse('${ApiConfig.baseUrl}/routes/$routeId/map-card/image').replace(
+      queryParameters: {
+        'template': template,
+        'width': width.toString(),
+        'height': height.toString(),
+      },
+    );
+
+    final response = await http.get(
+      uri,
+      headers: {'Authorization': 'Bearer $token'},
+    ).timeout(ApiConfig.timeout);
+
+    if (response.statusCode != 200) {
+      final data = _parseJson(response.body);
+      throw Exception(data['error'] ?? 'Error al descargar imagen del mapa');
+    }
+    return response.bodyBytes;
+  }
+
   Map<String, dynamic> _parseJson(String body) {
     try {
       final data = jsonDecode(body);

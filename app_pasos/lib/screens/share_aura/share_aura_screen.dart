@@ -54,7 +54,12 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
         template: _selectedTemplate,
       );
 
-      final mapBytes = await service.downloadMapImage(data.imageUrl);
+      final mapBytes = await service.downloadMapImageFromBackend(
+        widget.routeId,
+        template: _selectedTemplate,
+        width: data.width,
+        height: data.height,
+      );
       final image = await AuraCardComposer.loadImageFromBytes(mapBytes);
 
       if (!mounted) return;

@@ -67,6 +67,11 @@ const routeSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  caloriesSource: {
+    type: String,
+    enum: ['summary', 'detail', 'missing'],
+    default: 'missing'
+  },
   activityType: {
     type: String,
     enum: ['run', 'ride', 'walk', 'hike', 'other'],

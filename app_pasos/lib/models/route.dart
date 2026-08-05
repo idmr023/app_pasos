@@ -94,6 +94,7 @@ class UserRoute {
   final int averageHeartRate;
   final int maxHeartRate;
   final int calories;
+  final String caloriesSource;
   final String activityType;
   final DateTime? startDate;
   final RouteDesign? design;
@@ -113,6 +114,7 @@ class UserRoute {
     required this.averageHeartRate,
     required this.maxHeartRate,
     required this.calories,
+    required this.caloriesSource,
     required this.activityType,
     this.startDate,
     this.design,
@@ -137,6 +139,7 @@ class UserRoute {
       averageHeartRate: json['averageHeartRate'] ?? 0,
       maxHeartRate: json['maxHeartRate'] ?? 0,
       calories: json['calories'] ?? 0,
+      caloriesSource: json['caloriesSource'] ?? (((json['calories'] ?? 0) > 0) ? 'detail' : 'missing'),
       activityType: json['activityType'] ?? 'run',
       startDate: json['startDate'] != null ? DateTime.parse(json['startDate']) : null,
       design: json['design'] != null ? RouteDesign.fromJson(json['design']) : null,
