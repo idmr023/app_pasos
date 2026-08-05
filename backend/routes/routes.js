@@ -408,6 +408,27 @@ router.post('/strava/sync', auth, async (req, res) => {
       headers: { Authorization: `Bearer ${token}` }
     });
 
+    if (activitiesRes.data?.length > 0) {
+      const sample = activitiesRes.data[0];
+      console.log('[Strava sync] sample activity fields:', Object.keys(sample).sort());
+      console.log('[Strava sync] sample activity preview:', JSON.stringify({
+        id: sample.id,
+        name: sample.name,
+        type: sample.type,
+        sport_type: sample.sport_type,
+        moving_time: sample.moving_time,
+        elapsed_time: sample.elapsed_time,
+        distance: sample.distance,
+        calories: sample.calories,
+        average_heartrate: sample.average_heartrate,
+        max_heartrate: sample.max_heartrate,
+        start_date: sample.start_date,
+        has_polyline: !!sample.map?.summary_polyline
+      }, null, 2));
+    } else {
+      console.log('[Strava sync] no activities returned by Strava');
+    }
+
     let importedCount = 0;
     for (const act of activitiesRes.data) {
       const exists = await Route.findOne({ user: user._id, stravaActivityId: act.id });
