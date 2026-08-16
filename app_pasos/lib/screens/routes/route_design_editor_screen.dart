@@ -127,67 +127,78 @@ class _RouteDesignEditorScreenState extends State<RouteDesignEditorScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Vista previa simulada
-                Center(
-                  child: Container(
-                    width: double.infinity,
-                    height: 220,
-                    decoration: BoxDecoration(
-                      color: _parseHex(_backgroundColor, fallback: const Color(0xFF0F172A)),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: _parseHex(_routeColor), width: 2),
-                    ),
-                    child: Stack(
-                      children: [
-                        Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.map, size: 48, color: _parseHex(_routeColor).withValues(alpha: 0.8)),
-                              const SizedBox(height: 8),
-                              Text(
-                                widget.route.title,
-                                style: TextStyle(
-                                  color: _parseHex(_backgroundColor).computeLuminance() > 0.5 ? Colors.black87 : Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  fontFamily: _fontFamily,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${(widget.route.distance / 1000).toStringAsFixed(2)} km • LineWidth: ${_lineWidth}px (${_lineStyle.toUpperCase()})',
-                                style: TextStyle(
-                                  color: _parseHex(_backgroundColor).computeLuminance() > 0.5 ? Colors.black54 : Colors.white70,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              if (_showElevation) ...[
-                                const SizedBox(height: 4),
-                                const Text('Desnivel activo', style: TextStyle(color: AppTheme.secondary, fontSize: 11)),
-                              ],
-                            ],
-                          ),
-                        ),
-                        Positioned(
-                          top: 12,
-                          right: 12,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: _parseHex(_routeColor),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              widget.route.activityType.toUpperCase(),
-                              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                 // Vista previa simulada
+                 Center(
+                   child: Container(
+                     width: double.infinity,
+                     height: 220,
+                     decoration: BoxDecoration(
+                       color: Colors.transparent,
+                     ),
+                     child: Stack(
+                       children: [
+                         Center(
+                           child: Column(
+                             mainAxisAlignment: MainAxisAlignment.center,
+                             children: [
+                               // Transparent box for route data
+                               Container(
+                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                 decoration: BoxDecoration(
+                                   color: _parseHex(_backgroundColor, fallback: const Color(0xFF0F172A)).withValues(alpha: 0.7),
+                                   borderRadius: BorderRadius.circular(16),
+                                 ),
+                                 child: Column(
+                                   mainAxisSize: MainAxisSize.min,
+                                   children: [
+                                     Icon(Icons.map, size: 48, color: _parseHex(_routeColor).withValues(alpha: 0.8)),
+                                     const SizedBox(height: 8),
+                                     Text(
+                                       widget.route.title,
+                                       style: TextStyle(
+                                         color: _parseHex(_backgroundColor).computeLuminance() > 0.5 ? Colors.black87 : Colors.white,
+                                         fontSize: 18,
+                                         fontWeight: FontWeight.bold,
+                                         fontFamily: _fontFamily,
+                                       ),
+                                     ),
+                                     const SizedBox(height: 4),
+                                     Text(
+                                       '${(widget.route.distance / 1000).toStringAsFixed(2)} km • LineWidth: ${_lineWidth}px (${_lineStyle.toUpperCase()})',
+                                       style: TextStyle(
+                                         color: _parseHex(_backgroundColor).computeLuminance() > 0.5 ? Colors.black54 : Colors.white70,
+                                         fontSize: 12,
+                                       ),
+                                     ),
+                                     if (_showElevation) ...[
+                                       const SizedBox(height: 4),
+                                       const Text('Desnivel activo', style: TextStyle(color: AppTheme.secondary, fontSize: 11)),
+                                     ],
+                                   ],
+                                 ),
+                               ),
+                             ],
+                           ),
+                         ),
+                         Positioned(
+                           top: 12,
+                           right: 12,
+                           child: Container(
+                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                             decoration: BoxDecoration(
+                               color: _parseHex(_routeColor),
+                               borderRadius: BorderRadius.circular(8),
+                             ),
+                             child: Text(
+                               widget.route.activityType.toUpperCase(),
+                               style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                             ),
+                           ),
+                         ),
+                       ],
+                     ),
+                   ),
+                 ),
                 const SizedBox(height: 24),
 
                 // Color de Ruta

@@ -1,9 +1,100 @@
 import 'package:flutter/material.dart';
 
+enum TemplateType {
+  cartografo,
+  diario,
+  distanciaRey,
+  cyberHud,
+  timeline,
+}
+
+extension TemplateTypeX on TemplateType {
+  String get id {
+    switch (this) {
+      case TemplateType.cartografo: return 'cartografo';
+      case TemplateType.diario: return 'diario';
+      case TemplateType.distanciaRey: return 'distancia_rey';
+      case TemplateType.cyberHud: return 'cyber_hud';
+      case TemplateType.timeline: return 'timeline';
+    }
+  }
+
+  String get displayName {
+    switch (this) {
+      case TemplateType.cartografo: return 'El Cartógrafo';
+      case TemplateType.diario: return 'El Diario';
+      case TemplateType.distanciaRey: return 'Distancia Rey';
+      case TemplateType.cyberHud: return 'Cyber HUD';
+      case TemplateType.timeline: return 'Línea de Tiempo';
+    }
+  }
+
+  String get subtitle {
+    switch (this) {
+      case TemplateType.cartografo: return 'Minimalismo puro sobre mapa 3D';
+      case TemplateType.diario: return 'Estética Editorial / Revista';
+      case TemplateType.distanciaRey: return 'Río de neón dentro del KM';
+      case TemplateType.cyberHud: return 'Interfaz Sci-Fi con Crosshairs';
+      case TemplateType.timeline: return 'Storytelling e hitos de carrera';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case TemplateType.cartografo: return Icons.map;
+      case TemplateType.diario: return Icons.auto_stories;
+      case TemplateType.distanciaRey: return Icons.workspace_premium;
+      case TemplateType.cyberHud: return Icons.radar;
+      case TemplateType.timeline: return Icons.timeline;
+    }
+  }
+}
+
+class AuraMetricsConfig {
+  final bool showMap;
+  final bool showDistance;
+  final bool showPace;
+  final bool showTime;
+  final bool showCalories;
+  final bool showElevation;
+  final bool showHeartRate;
+
+  const AuraMetricsConfig({
+    this.showMap = true,
+    this.showDistance = true,
+    this.showPace = true,
+    this.showTime = true,
+    this.showCalories = true,
+    this.showElevation = true,
+    this.showHeartRate = false,
+  });
+
+  AuraMetricsConfig copyWith({
+    bool? showMap,
+    bool? showDistance,
+    bool? showPace,
+    bool? showTime,
+    bool? showCalories,
+    bool? showElevation,
+    bool? showHeartRate,
+  }) {
+    return AuraMetricsConfig(
+      showMap: showMap ?? this.showMap,
+      showDistance: showDistance ?? this.showDistance,
+      showPace: showPace ?? this.showPace,
+      showTime: showTime ?? this.showTime,
+      showCalories: showCalories ?? this.showCalories,
+      showElevation: showElevation ?? this.showElevation,
+      showHeartRate: showHeartRate ?? this.showHeartRate,
+    );
+  }
+}
+
 class RouteCardTemplate {
   final String id;
   final String name;
   final String description;
+  final TemplateType type;
   final Color routeColor;
   final Color glowColor;
   final Color primaryTextColor;
@@ -14,18 +105,13 @@ class RouteCardTemplate {
   final double glowWidth;
   final String mapboxStyleId;
   final String layoutType;
-  final TextStyle titleStyle;
-  final TextStyle kmValueStyle;
-  final TextStyle kmLabelStyle;
-  final TextStyle paceValueStyle;
-  final TextStyle statValueStyle;
-  final TextStyle statLabelStyle;
   final IconData icon;
 
   const RouteCardTemplate({
     required this.id,
     required this.name,
     required this.description,
+    required this.type,
     required this.routeColor,
     required this.glowColor,
     required this.primaryTextColor,
@@ -36,21 +122,16 @@ class RouteCardTemplate {
     required this.glowWidth,
     required this.mapboxStyleId,
     required this.layoutType,
-    required this.titleStyle,
-    required this.kmValueStyle,
-    required this.kmLabelStyle,
-    required this.paceValueStyle,
-    required this.statValueStyle,
-    required this.statLabelStyle,
     required this.icon,
   });
 }
 
 final List<RouteCardTemplate> auraTemplates = [
   const RouteCardTemplate(
-    id: 'cyberpunk',
-    name: 'Cyberpunk Neón',
-    description: 'Mapa oscuro con ruta de neón azul y stats flotantes con glow',
+    id: 'cartografo',
+    name: 'El Cartógrafo',
+    description: 'Mapa 3D al 100% con tarjeta Glassmorphism en la parte inferior',
+    type: TemplateType.cartografo,
     routeColor: Color(0xFF00D4FF),
     glowColor: Color(0xFF00D4FF),
     primaryTextColor: Colors.white,
@@ -60,215 +141,80 @@ final List<RouteCardTemplate> auraTemplates = [
     routeLineWidth: 6,
     glowWidth: 18,
     mapboxStyleId: 'mapbox/dark-v11',
-    layoutType: 'cyberpunk',
-    icon: Icons.bolt,
-    titleStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 2),
-    kmValueStyle: TextStyle(fontSize: 72, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: -2),
-    kmLabelStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF8A8A9E), letterSpacing: 4),
-    paceValueStyle: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: Color(0xFF00D4FF)),
-    statValueStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Colors.white),
-    statLabelStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w400, color: Color(0xFF6B6B80), letterSpacing: 1),
+    layoutType: 'cartografo',
+    icon: Icons.map,
   ),
   const RouteCardTemplate(
-    id: 'titan',
-    name: 'Titan',
-    description: 'Kilómetros en tamaño enorme como protagonista absoluto',
-    routeColor: Color(0xFFFFFFFF),
-    glowColor: Colors.white,
+    id: 'diario',
+    name: 'El Diario',
+    description: 'Día de la semana gigante y estética de revista de moda',
+    type: TemplateType.diario,
+    routeColor: Color(0xFFF3F4F6),
+    glowColor: Colors.white24,
     primaryTextColor: Colors.white,
     secondaryTextColor: Color(0xFF9CA3AF),
-    backgroundColor: Color(0xFF0D1117),
-    accentColor: Color(0xFF6B7280),
-    routeLineWidth: 5,
-    glowWidth: 12,
-    mapboxStyleId: 'mapbox/dark-v11',
-    layoutType: 'titan',
-    icon: Icons.star,
-    titleStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w300, color: Color(0xFF9CA3AF), letterSpacing: 3),
-    kmValueStyle: TextStyle(fontSize: 96, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: -3),
-    kmLabelStyle: TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: Color(0xFF6B7280), letterSpacing: 5),
-    paceValueStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.w300, color: Color(0xFFD1D5DB)),
-    statValueStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w400, color: Color(0xFFD1D5DB)),
-    statLabelStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.w300, color: Color(0xFF6B7280), letterSpacing: 2),
-  ),
-  const RouteCardTemplate(
-    id: 'encuadre',
-    name: 'Encuadre',
-    description: 'Mapa enmarcado con bordes y stats en paneles equilibrados',
-    routeColor: Color(0xFF3B82F6),
-    glowColor: Color(0xFF3B82F6),
-    primaryTextColor: Color(0xFF1F2937),
-    secondaryTextColor: Color(0xFF6B7280),
-    backgroundColor: Color(0xFFF8FAFC),
-    accentColor: Color(0xFF3B82F6),
-    routeLineWidth: 5,
-    glowWidth: 10,
-    mapboxStyleId: 'mapbox/light-v11',
-    layoutType: 'encuadre',
-    icon: Icons.crop_square,
-    titleStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Color(0xFF1F2937), letterSpacing: 1),
-    kmValueStyle: TextStyle(fontSize: 40, fontWeight: FontWeight.w800, color: Color(0xFF1F2937)),
-    kmLabelStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Color(0xFF6B7280), letterSpacing: 2),
-    paceValueStyle: TextStyle(fontSize: 32, fontWeight: FontWeight.w700, color: Color(0xFF3B82F6)),
-    statValueStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Color(0xFF374151)),
-    statLabelStyle: TextStyle(fontSize: 10, fontWeight: FontWeight.w400, color: Color(0xFF9CA3AF), letterSpacing: 1),
-  ),
-  const RouteCardTemplate(
-    id: 'caligrafia',
-    name: 'Caligrafía',
-    description: 'Título con fuente elegante y mapa como fondo etéreo',
-    routeColor: Color(0xFF1A1A2E),
-    glowColor: Color(0xFF4F46E5),
-    primaryTextColor: Color(0xFF1A1A2E),
-    secondaryTextColor: Color(0xFF6B7280),
-    backgroundColor: Color(0xFFF3F0FF),
-    accentColor: Color(0xFF4F46E5),
+    backgroundColor: Color(0xFF111827),
+    accentColor: Color(0xFFE5E7EB),
     routeLineWidth: 4,
     glowWidth: 8,
-    mapboxStyleId: 'mapbox/light-v11',
-    layoutType: 'caligrafia',
-    icon: Icons.brush,
-    titleStyle: TextStyle(fontSize: 36, fontWeight: FontWeight.w400, color: Color(0xFF1A1A2E), fontStyle: FontStyle.italic, letterSpacing: 0),
-    kmValueStyle: TextStyle(fontSize: 48, fontWeight: FontWeight.w300, color: Color(0xFF1A1A2E), letterSpacing: -1),
-    kmLabelStyle: TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: Color(0xFF6B7280), letterSpacing: 3),
-    paceValueStyle: TextStyle(fontSize: 24, fontWeight: FontWeight.w400, color: Color(0xFF4F46E5)),
-    statValueStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.w400, color: Color(0xFF374151)),
-    statLabelStyle: TextStyle(fontSize: 10, fontWeight: FontWeight.w300, color: Color(0xFF9CA3AF), letterSpacing: 2),
-  ),
-  const RouteCardTemplate(
-    id: 'semanal',
-    name: 'Semanal',
-    description: 'Resumen semanal con barras por día y mapa compacto',
-    routeColor: Color(0xFF6366F1),
-    glowColor: Color(0xFF6366F1),
-    primaryTextColor: Colors.white,
-    secondaryTextColor: Color(0xFFA5B4FC),
-    backgroundColor: Color(0xFF0F0F23),
-    accentColor: Color(0xFF818CF8),
-    routeLineWidth: 4,
-    glowWidth: 10,
     mapboxStyleId: 'mapbox/dark-v11',
-    layoutType: 'semanal',
-    icon: Icons.calendar_view_week,
-    titleStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Color(0xFFA5B4FC), letterSpacing: 2),
-    kmValueStyle: TextStyle(fontSize: 48, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: -1),
-    kmLabelStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w400, color: Color(0xFFA5B4FC), letterSpacing: 3),
-    paceValueStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Color(0xFF818CF8)),
-    statValueStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white),
-    statLabelStyle: TextStyle(fontSize: 10, fontWeight: FontWeight.w400, color: Color(0xFF6366F1), letterSpacing: 1),
+    layoutType: 'diario',
+    icon: Icons.auto_stories,
   ),
   const RouteCardTemplate(
-    id: 'split',
-    name: 'Split',
-    description: 'Ritmo por kilómetro en timeline vertical junto al mapa',
-    routeColor: Color(0xFFF97316),
-    glowColor: Color(0xFFF97316),
+    id: 'distancia_rey',
+    name: 'Distancia Rey',
+    description: 'Número de KM masivo usando ShaderMask con la foto/mapa de fondo',
+    type: TemplateType.distanciaRey,
+    routeColor: Color(0xFFFFD700),
+    glowColor: Color(0xFFFFD700),
     primaryTextColor: Colors.white,
-    secondaryTextColor: Color(0xFFFDBA74),
-    backgroundColor: Color(0xFF1C1917),
-    accentColor: Color(0xFFF97316),
-    routeLineWidth: 5,
-    glowWidth: 14,
-    mapboxStyleId: 'mapbox/streets-v12',
-    layoutType: 'split',
-    icon: Icons.timeline,
-    titleStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFFFDBA74), letterSpacing: 1),
-    kmValueStyle: TextStyle(fontSize: 36, fontWeight: FontWeight.w800, color: Colors.white),
-    kmLabelStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w400, color: Color(0xFFFDBA74), letterSpacing: 2),
-    paceValueStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Color(0xFFF97316)),
-    statValueStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70),
-    statLabelStyle: TextStyle(fontSize: 10, fontWeight: FontWeight.w400, color: Color(0xFF78716C), letterSpacing: 1),
-  ),
-  const RouteCardTemplate(
-    id: 'dashboard',
-    name: 'Dashboard',
-    description: 'Panel completo con 6 stats en grilla y mapa como inset',
-    routeColor: Color(0xFF06B6D4),
-    glowColor: Color(0xFF06B6D4),
-    primaryTextColor: Colors.white,
-    secondaryTextColor: Color(0xFF67E8F9),
-    backgroundColor: Color(0xFF0B0F19),
-    accentColor: Color(0xFF06B6D4),
-    routeLineWidth: 4,
-    glowWidth: 10,
-    mapboxStyleId: 'mapbox/dark-v11',
-    layoutType: 'dashboard',
-    icon: Icons.grid_view,
-    titleStyle: TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: Color(0xFF67E8F9), letterSpacing: 3),
-    kmValueStyle: TextStyle(fontSize: 36, fontWeight: FontWeight.w800, color: Colors.white),
-    kmLabelStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.w400, color: Color(0xFF67E8F9), letterSpacing: 2),
-    paceValueStyle: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: Color(0xFF06B6D4)),
-    statValueStyle: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: Colors.white),
-    statLabelStyle: TextStyle(fontSize: 9, fontWeight: FontWeight.w400, color: Color(0xFF5EEAD4), letterSpacing: 1),
-  ),
-  const RouteCardTemplate(
-    id: 'pulse',
-    name: 'Pulse',
-    description: 'Frecuencia cardíaca destacada con ondas y mapa satelital',
-    routeColor: Color(0xFFEF4444),
-    glowColor: Color(0xFFEF4444),
-    primaryTextColor: Colors.white,
-    secondaryTextColor: Color(0xFFFCA5A5),
-    backgroundColor: Color(0xFF1A0A0A),
-    accentColor: Color(0xFFEF4444),
-    routeLineWidth: 5,
-    glowWidth: 16,
-    mapboxStyleId: 'mapbox/satellite-streets-v12',
-    layoutType: 'pulse',
-    icon: Icons.favorite,
-    titleStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Color(0xFFFCA5A5), letterSpacing: 1),
-    kmValueStyle: TextStyle(fontSize: 48, fontWeight: FontWeight.w800, color: Colors.white),
-    kmLabelStyle: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Color(0xFFFCA5A5), letterSpacing: 3),
-    paceValueStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: Color(0xFFEF4444)),
-    statValueStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white),
-    statLabelStyle: TextStyle(fontSize: 10, fontWeight: FontWeight.w400, color: Color(0xFFF87171), letterSpacing: 1),
-  ),
-  const RouteCardTemplate(
-    id: 'minimal',
-    name: 'Minimal',
-    description: 'Ultra clean estilo Apple Watch, solo 3 stats en esquina',
-    routeColor: Color(0xFFA1A1AA),
-    glowColor: Color(0xFFA1A1AA),
-    primaryTextColor: Colors.white,
-    secondaryTextColor: Color(0xFFA1A1AA),
-    backgroundColor: Color(0xFF18181B),
-    accentColor: Color(0xFFA1A1AA),
-    routeLineWidth: 3,
-    glowWidth: 6,
-    mapboxStyleId: 'mapbox/light-v11',
-    layoutType: 'minimal',
-    icon: Icons.circle_outlined,
-    titleStyle: TextStyle(fontSize: 14, fontWeight: FontWeight.w300, color: Color(0xFFA1A1AA), letterSpacing: 2),
-    kmValueStyle: TextStyle(fontSize: 28, fontWeight: FontWeight.w300, color: Colors.white),
-    kmLabelStyle: TextStyle(fontSize: 10, fontWeight: FontWeight.w300, color: Color(0xFFA1A1AA), letterSpacing: 2),
-    paceValueStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w300, color: Color(0xFFD4D4D8)),
-    statValueStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w300, color: Color(0xFFD4D4D8)),
-    statLabelStyle: TextStyle(fontSize: 9, fontWeight: FontWeight.w300, color: Color(0xFFA1A1AA), letterSpacing: 1),
-  ),
-  const RouteCardTemplate(
-    id: 'cinematic',
-    name: 'Cinematic',
-    description: 'Póster widescreen con mapa satelital full-bleed',
-    routeColor: Color(0xFFEAB308),
-    glowColor: Color(0xFFEAB308),
-    primaryTextColor: Colors.white,
-    secondaryTextColor: Color(0xFFFDE68A),
-    backgroundColor: Color(0xFF0A0A0A),
-    accentColor: Color(0xFFEAB308),
+    secondaryTextColor: Color(0xFFFFE57F),
+    backgroundColor: Color(0xFF0D0D11),
+    accentColor: Color(0xFFFFD700),
     routeLineWidth: 6,
-    glowWidth: 20,
-    mapboxStyleId: 'mapbox/satellite-streets-v12',
-    layoutType: 'cinematic',
-    icon: Icons.movie_creation,
-    titleStyle: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 4),
-    kmValueStyle: TextStyle(fontSize: 64, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: -2),
-    kmLabelStyle: TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: Color(0xFFFDE68A), letterSpacing: 4),
-    paceValueStyle: TextStyle(fontSize: 24, fontWeight: FontWeight.w600, color: Color(0xFFEAB308)),
-    statValueStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w400, color: Color(0xFFFDE68A)),
-    statLabelStyle: TextStyle(fontSize: 10, fontWeight: FontWeight.w300, color: Color(0xFFA16207), letterSpacing: 2),
+    glowWidth: 16,
+    mapboxStyleId: 'mapbox/dark-v11',
+    layoutType: 'distancia_rey',
+    icon: Icons.workspace_premium,
+  ),
+  const RouteCardTemplate(
+    id: 'cyber_hud',
+    name: 'Cyber HUD',
+    description: 'Interfaz Sci-Fi con verde fósforo, crosshairs y corchetes angulares',
+    type: TemplateType.cyberHud,
+    routeColor: Color(0xFF00FF66),
+    glowColor: Color(0xFF00FF66),
+    primaryTextColor: Colors.white,
+    secondaryTextColor: Color(0xFF00FF66),
+    backgroundColor: Color(0xFF050811),
+    accentColor: Color(0xFFFF0055),
+    routeLineWidth: 5,
+    glowWidth: 15,
+    mapboxStyleId: 'mapbox/dark-v11',
+    layoutType: 'cyber_hud',
+    icon: Icons.radar,
+  ),
+  const RouteCardTemplate(
+    id: 'timeline',
+    name: 'Línea de Tiempo',
+    description: 'Storytelling e hitos visuales estilo pase de abordar premium',
+    type: TemplateType.timeline,
+    routeColor: Color(0xFF38BDF8),
+    glowColor: Color(0xFF38BDF8),
+    primaryTextColor: Colors.white,
+    secondaryTextColor: Color(0xFF94A3B8),
+    backgroundColor: Color(0xFF0F172A),
+    accentColor: Color(0xFF38BDF8),
+    routeLineWidth: 4,
+    glowWidth: 10,
+    mapboxStyleId: 'mapbox/streets-v12',
+    layoutType: 'timeline',
+    icon: Icons.timeline,
   ),
 ];
 
 RouteCardTemplate getTemplateById(String id) {
   return auraTemplates.firstWhere((t) => t.id == id, orElse: () => auraTemplates[0]);
 }
+

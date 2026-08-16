@@ -124,10 +124,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             onPressed: () => Navigator.pop(context),
           ),
           Expanded(
-            child: Text(
-              challenge?['code'] ?? 'Estadísticas',
-              textAlign: TextAlign.center,
-              style: AppTheme.titleLarge.copyWith(letterSpacing: 4),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3), width: 1),
+              ),
+              child: Text(
+                challenge?['code'] ?? 'Estadísticas',
+                textAlign: TextAlign.center,
+                style: AppTheme.titleLarge.copyWith(
+                  letterSpacing: 4,
+                  color: Colors.white,
+                ),
+              ),
             ),
           ),
           const SizedBox(width: 48),
@@ -350,6 +361,165 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     }),
                   ),
                 ),
+              ),
+            ),
+            // Phone-inspired metrics panel below the chart
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Distance metric card
+                  Expanded(
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3), width: 1),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppTheme.primary.withValues(alpha: 0.2),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.directions_run, color: AppTheme.primary, size: 16),
+                              const SizedBox(width: 6),
+                              Text(
+                                'DISTANCIA',
+                                style: TextStyle(
+                                  color: AppTheme.darkGrey,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 1,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '42.2 km',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // Pace metric card
+                  Expanded(
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.tertiary.withValues(alpha: 0.3), width: 1),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppTheme.tertiary.withValues(alpha: 0.2),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.speed, color: AppTheme.tertiary, size: 16),
+                              const SizedBox(width: 6),
+                              Text(
+                                'RITMO',
+                                style: TextStyle(
+                                  color: AppTheme.darkGrey,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 1,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '5:12 /km',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // Elevation metric card
+                  Expanded(
+                    child: Container(
+                      margin: const EdgeInsets.only(left: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.secondary.withValues(alpha: 0.3), width: 1),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppTheme.secondary.withValues(alpha: 0.2),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.landscape, color: AppTheme.secondary, size: 16),
+                              const SizedBox(width: 6),
+                              Text(
+                                'ELEVACIÓN',
+                                style: TextStyle(
+                                  color: AppTheme.darkGrey,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 1,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '+324 m',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

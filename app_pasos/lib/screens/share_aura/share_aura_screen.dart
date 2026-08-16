@@ -6,15 +6,21 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:gal/gal.dart';
 import '../../config/theme.dart';
-import '../../models/route.dart';
 import '../../models/route_card_template.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/aura_card_service.dart';
 import '../../services/route_service.dart';
 import '../../widgets/aura_card_composer.dart';
-import '../../widgets/loading_states.dart';
-import '../../widgets/template_selector.dart';
+import '../../widgets/aura_card_builder.dart';
+import '../../widgets/route_texture_renderer.dart';
 
+/// Pantalla principal del módulo Share Aura V3.
+///
+/// Arquitectura:
+/// 1. Carga la ruta, el mapa 3D y la textura GPS UNA sola vez.
+/// 2. Muestra los 5 moldes en una grilla de 2 columnas.
+/// 3. Al tocar un molde se abre [AuraConfiguratorSheet] (BottomSheet) con
+///    previsualización en vivo, toggles de métricas y botón de compartir.
 class ShareAuraScreen extends StatefulWidget {
   final String routeId;
 
@@ -25,68 +31,62 @@ class ShareAuraScreen extends StatefulWidget {
 }
 
 class _ShareAuraScreenState extends State<ShareAuraScreen> {
-  String _selectedTemplate = 'cyberpunk';
-  AuraCardData? _cardData;
+  AuraData? _auraData;
   ui.Image? _mapImage;
-  bool _isLoading = false;
-  bool _isSharing = false;
+  bool _isLoading = true;
   String? _error;
-  final GlobalKey _repaintKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
-    _generateCard();
+    _loadAssets();
   }
 
-  Future<void> _generateCard() async {
+  Future<void> _loadAssets() async {
     setState(() {
       _isLoading = true;
       _error = null;
-      _mapImage = null;
     });
 
     try {
       final auth = context.read<AuthProvider>();
       if (auth.token == null) throw Exception('No autenticado');
 
-      final service = AuraCardService(auth.token!);
       final routeService = RouteService(auth.token!);
       final route = await routeService.getRoute(widget.routeId);
-      final templateConfig = getTemplateById(_selectedTemplate);
 
-      final mapBytes = await service.downloadMapImageFromBackend(
-        widget.routeId,
-        template: _selectedTemplate,
-        width: 1080,
-        height: 1280,
-      );
-      final image = await AuraCardComposer.loadImageFromBytes(mapBytes);
+      // Mapa 3D (estilo oscuro, compartido por los moldes que usan mapa)
+      ui.Image? mapImage;
+      try {
+        final mapBytes = await AuraCardService(auth.token!).downloadMapImageFromBackend(
+          widget.routeId,
+          template: TemplateType.cartografo.id,
+          width: 1080,
+          height: 1920,
+        );
+        mapImage = await AuraCardComposer.loadImageFromBytes(mapBytes);
+      } catch (_) {
+        mapImage = null; // Los moldes funcionan también sin mapa
+      }
+
+      // Textura "Río de Neón" para Distancia Rey
+      final routeTexture = await RouteTextureRenderer.render(coordinates: route.coordinates);
 
       if (!mounted) return;
       setState(() {
-        _cardData = AuraCardData(
-          imageUrl: '',
-          stats: {
-            'title': route.title,
-            'distance': route.distance,
-            'duration': route.duration,
-            'elevationGain': route.elevationGain,
-            'averagePace': route.averagePace,
-            'averageHeartRate': route.averageHeartRate,
-            'maxHeartRate': route.maxHeartRate,
-            'calories': route.calories,
-            'caloriesSource': route.caloriesSource,
-            'activityType': route.activityType,
-            'startDate': route.startDate?.toIso8601String(),
-            'source': route.source,
-          },
-          template: _selectedTemplate,
-          width: 1080,
-          height: 1280,
-          templateConfig: templateConfig,
+        _auraData = AuraData(
+          title: route.title,
+          distanceKm: route.distance / 1000,
+          pace: AuraCardComposer.formatPace(route.averagePace.toDouble()),
+          duration: AuraCardComposer.formatDuration(route.duration),
+          elevationGain: route.elevationGain,
+          calories: route.calories,
+          heartRate: route.averageHeartRate,
+          date: route.startDate ?? DateTime.now(),
+          coordinates: route.coordinates,
+          routeTexture: routeTexture,
         );
-        _mapImage = image;
+        _mapImage = mapImage;
         _isLoading = false;
       });
     } catch (e) {
@@ -98,80 +98,18 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
     }
   }
 
-  Future<Uint8List?> _captureCardBytes() async {
-    if (_cardData == null) return null;
-
-    final boundary = _repaintKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-    if (boundary == null) return null;
-
-    final image = await boundary.toImage(pixelRatio: 3);
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-    if (byteData == null) return null;
-    return byteData.buffer.asUint8List();
-  }
-
-  Future<void> _shareCard() async {
-    if (_cardData == null || _isSharing) return;
-
-    setState(() => _isSharing = true);
-    try {
-      final bytes = await _captureCardBytes();
-      if (bytes == null) return;
-
-      final xfile = XFile.fromData(
-        bytes,
-        mimeType: 'image/png',
-        name: 'aura_card_${DateTime.now().millisecondsSinceEpoch}.png',
-      );
-
-      await Share.shareXFiles([xfile], text: 'Mi entrenamiento en App Pasos!');
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al compartir: $e'), backgroundColor: AppTheme.error),
-      );
-    } finally {
-      if (mounted) setState(() => _isSharing = false);
-    }
-  }
-
-  Future<void> _copyCard() async {
-    try {
-      final bytes = await _captureCardBytes();
-      if (bytes == null) return;
-      
-      final xfile = XFile.fromData(
-        bytes,
-        mimeType: 'image/png',
-        name: 'aura_card_${DateTime.now().millisecondsSinceEpoch}.png',
-      );
-      await Share.shareXFiles([xfile], text: 'Mi tarjeta de ruta en App Pasos!');
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo compartir la imagen: $e'), backgroundColor: AppTheme.error),
-      );
-    }
-  }
-
-  Future<void> _saveToGallery() async {
-    try {
-      final bytes = await _captureCardBytes();
-      if (bytes == null) return;
-      if (!await Gal.hasAccess(toAlbum: true)) {
-        await Gal.requestAccess(toAlbum: true);
-      }
-      await Gal.putImageBytes(bytes, album: 'App Pasos');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Imagen guardada en la galería'), backgroundColor: AppTheme.secondary),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo guardar la imagen en este dispositivo'), backgroundColor: AppTheme.error),
-      );
-    }
+  void _openConfigurator(TemplateType template) {
+    if (_auraData == null) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AuraConfiguratorSheet(
+        templateType: template,
+        data: _auraData!,
+        mapImage: _mapImage,
+      ),
+    );
   }
 
   @override
@@ -181,49 +119,12 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         title: const Text('Share Aura', style: TextStyle(fontWeight: FontWeight.w600, letterSpacing: 1)),
-        actions: [
-          if (_cardData != null) ...[
-            IconButton(
-              icon: const Icon(Icons.copy, color: Colors.white),
-              onPressed: _copyCard,
-              tooltip: 'Copiar imagen',
-            ),
-            IconButton(
-              icon: const Icon(Icons.download, color: Colors.white),
-              onPressed: _saveToGallery,
-              tooltip: 'Guardar en galería',
-            ),
-            IconButton(
-              icon: _isSharing
-                  ? const InlineSpinner()
-                  : const Icon(Icons.share, color: Colors.white),
-              onPressed: _isSharing ? null : _shareCard,
-              tooltip: 'Compartir',
-            ),
-          ],
-        ],
       ),
-      body: Column(
-        children: [
-          const SizedBox(height: 8),
-          TemplateSelector(
-            templates: auraTemplates,
-            selectedId: _selectedTemplate,
-            onChanged: (id) {
-              setState(() => _selectedTemplate = id);
-              _generateCard();
-            },
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: _buildPreview(),
-          ),
-        ],
-      ),
+      body: _buildBody(),
     );
   }
 
-  Widget _buildPreview() {
+  Widget _buildBody() {
     if (_isLoading) {
       return const Center(
         child: Column(
@@ -231,9 +132,9 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
           children: [
             CircularProgressIndicator(color: Color(0xFF00D4FF)),
             SizedBox(height: 16),
-            Text('Generando tu tarjeta...', style: TextStyle(color: Colors.white54, fontSize: 14)),
+            Text('Preparando tu ruta...', style: TextStyle(color: Colors.white54, fontSize: 14)),
             SizedBox(height: 8),
-            Text('Descargando mapa 3D de Mapbox', style: TextStyle(color: Colors.white24, fontSize: 12)),
+            Text('Mapa 3D + textura GPS', style: TextStyle(color: Colors.white24, fontSize: 12)),
           ],
         ),
       );
@@ -248,10 +149,11 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
             children: [
               const Icon(Icons.error_outline, size: 48, color: AppTheme.error),
               const SizedBox(height: 16),
-              Text('Error: $_error', style: const TextStyle(color: Colors.white54, fontSize: 14), textAlign: TextAlign.center),
+              Text('Error: $_error',
+                  style: const TextStyle(color: Colors.white54, fontSize: 14), textAlign: TextAlign.center),
               const SizedBox(height: 24),
               ElevatedButton.icon(
-                onPressed: _generateCard,
+                onPressed: _loadAssets,
                 icon: const Icon(Icons.refresh),
                 label: const Text('Reintentar'),
                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00D4FF)),
@@ -262,53 +164,320 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
       );
     }
 
-    if (_cardData == null) return const SizedBox();
-
-    final cardWidth = _cardData!.width.toDouble();
-    final cardHeight = _cardData!.height.toDouble();
-    final screenWidth = MediaQuery.of(context).size.width - 32;
-    final scale = screenWidth / cardWidth;
-    final displayWidth = screenWidth;
-    final displayHeight = cardHeight * scale;
-
-    return Center(
-      child: GestureDetector(
-        onTap: _shareCard,
-        child: RepaintBoundary(
-          key: _repaintKey,
-          child: Container(
-            width: displayWidth,
-            height: displayHeight,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: _getTemplateColor().withValues(alpha: 0.2),
-                  blurRadius: 30,
-                  spreadRadius: 5,
-                ),
-              ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(20, 8, 20, 16),
+          child: Text(
+            'ELIGE TU MOLDE',
+            style: TextStyle(
+              color: Colors.white54,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 3,
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: CustomPaint(
-                size: Size(displayWidth, displayHeight),
-                painter: AuraCardPainter(
-                  mapImage: _mapImage,
-                  stats: _cardData!.stats,
-                  template: _cardData!.templateConfig,
+          ),
+        ),
+        Expanded(
+          child: GridView.count(
+            crossAxisCount: 2,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 0.85,
+            children: [
+              for (final template in TemplateType.values)
+                _TemplateGridCard(
+                  template: template,
+                  onTap: () => _openConfigurator(template),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Tarjeta de la grilla principal para elegir un molde.
+class _TemplateGridCard extends StatelessWidget {
+  final TemplateType template;
+  final VoidCallback onTap;
+
+  const _TemplateGridCard({required this.template, required this.onTap});
+
+  static const Map<TemplateType, Color> _accents = {
+    TemplateType.cartografo: Color(0xFF00D4FF),
+    TemplateType.diario: Color(0xFFF3F4F6),
+    TemplateType.distanciaRey: Color(0xFF00F5D4),
+    TemplateType.cyberHud: Color(0xFF00FF66),
+    TemplateType.timeline: Color(0xFF38BDF8),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = _accents[template] ?? Colors.white;
+
+    return Material(
+      color: const Color(0xFF10121D),
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: accent.withValues(alpha: 0.25)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(template.icon, color: accent, size: 26),
+              ),
+              const Spacer(),
+              Text(
+                template.displayName,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-            ),
+              const SizedBox(height: 4),
+              Text(
+                template.subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white38, fontSize: 10, height: 1.3),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
+}
 
-  Color _getTemplateColor() {
-    return auraTemplates
-        .firstWhere((t) => t.id == _selectedTemplate, orElse: () => auraTemplates[0])
-        .routeColor;
+/// Pop-up configurador: previsualización en vivo + toggles + compartir.
+class AuraConfiguratorSheet extends StatefulWidget {
+  final TemplateType templateType;
+  final AuraData data;
+  final ui.Image? mapImage;
+
+  const AuraConfiguratorSheet({
+    super.key,
+    required this.templateType,
+    required this.data,
+    this.mapImage,
+  });
+
+  @override
+  State<AuraConfiguratorSheet> createState() => _AuraConfiguratorSheetState();
+}
+
+class _AuraConfiguratorSheetState extends State<AuraConfiguratorSheet> {
+  AuraMetricsConfig _config = const AuraMetricsConfig();
+  final GlobalKey _repaintKey = GlobalKey();
+  bool _isProcessing = false;
+
+  Future<Uint8List?> _captureCardBytes() async {
+    final boundary = _repaintKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+    if (boundary == null) return null;
+    final image = await boundary.toImage(pixelRatio: 3);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (byteData == null) return null;
+    return byteData.buffer.asUint8List();
+  }
+
+  Future<void> _share() async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
+    try {
+      final bytes = await _captureCardBytes();
+      if (bytes == null) return;
+      final xfile = XFile.fromData(
+        bytes,
+        mimeType: 'image/png',
+        name: 'aura_card_${DateTime.now().millisecondsSinceEpoch}.png',
+      );
+      await Share.shareXFiles([xfile], text: 'Mi entrenamiento en App Pasos!');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al compartir: $e'), backgroundColor: AppTheme.error),
+      );
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  Future<void> _saveToGallery() async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
+    try {
+      final bytes = await _captureCardBytes();
+      if (bytes == null) return;
+      if (!await Gal.hasAccess(toAlbum: true)) {
+        await Gal.requestAccess(toAlbum: true);
+      }
+      await Gal.putImageBytes(bytes, album: 'App Pasos');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Imagen guardada en la galería'), backgroundColor: AppTheme.secondary),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo guardar la imagen'), backgroundColor: AppTheme.error),
+      );
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    return Container(
+      height: screenHeight * 0.92,
+      decoration: const BoxDecoration(
+        color: Color(0xFF0B0D17),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: Column(
+        children: [
+          // Handle de arrastre
+          Container(
+            margin: const EdgeInsets.only(top: 12),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white24,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+
+          // Header del molde
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Row(
+              children: [
+                Icon(widget.templateType.icon, color: Colors.white70, size: 20),
+                const SizedBox(width: 10),
+                Text(
+                  widget.templateType.displayName,
+                  style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+
+          // Previsualización en tiempo real
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 48),
+                child: RepaintBoundary(
+                  key: _repaintKey,
+                  child: AuraCardBuilder(
+                    templateType: widget.templateType,
+                    data: widget.data,
+                    metricsConfig: _config,
+                    mapImage: widget.mapImage,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Panel de toggles
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _buildToggle('Mapa', _config.showMap, (v) => _config = _config.copyWith(showMap: v)),
+                _buildToggle('Kilómetros', _config.showDistance, (v) => _config = _config.copyWith(showDistance: v)),
+                _buildToggle('Ritmo', _config.showPace, (v) => _config = _config.copyWith(showPace: v)),
+                _buildToggle('Tiempo', _config.showTime, (v) => _config = _config.copyWith(showTime: v)),
+                _buildToggle('Calorías', _config.showCalories, (v) => _config = _config.copyWith(showCalories: v)),
+                _buildToggle('Elevación', _config.showElevation, (v) => _config = _config.copyWith(showElevation: v)),
+              ],
+            ),
+          ),
+
+          // Botones de acción
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _isProcessing ? null : _saveToGallery,
+                    icon: const Icon(Icons.download, size: 18),
+                    label: const Text('Guardar'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      side: const BorderSide(color: Colors.white24),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton.icon(
+                    onPressed: _isProcessing ? null : _share,
+                    icon: _isProcessing
+                        ? const SizedBox(
+                            width: 18, height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                          )
+                        : const Icon(Icons.share, size: 18),
+                    label: Text(_isProcessing ? 'Generando...' : 'Compartir Aura'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00D4FF),
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToggle(String label, bool value, ValueChanged<bool> onChanged) {
+    return FilterChip(
+      label: Text(label),
+      selected: value,
+      onSelected: (v) => setState(() => onChanged(v)),
+      selectedColor: const Color(0xFF00D4FF).withValues(alpha: 0.2),
+      checkmarkColor: const Color(0xFF00D4FF),
+      backgroundColor: const Color(0xFF1E2235),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: value ? const Color(0xFF00D4FF) : Colors.transparent),
+      ),
+      labelStyle: TextStyle(
+        color: value ? const Color(0xFF00D4FF) : Colors.white60,
+        fontSize: 11,
+      ),
+    );
   }
 }
