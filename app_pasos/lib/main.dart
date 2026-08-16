@@ -9,6 +9,7 @@ import 'providers/xp_provider.dart';
 import 'providers/gym_provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/route_provider.dart';
+import 'providers/tracking_provider.dart';
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
@@ -18,6 +19,7 @@ import 'screens/challenge_room_screen.dart';
 import 'screens/analytics_screen.dart';
 import 'screens/main_shell.dart';
 import 'screens/forgot_password_screen.dart';
+import 'screens/tracking/live_hub_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setPreferredOrientations([
@@ -45,6 +47,7 @@ class AppPasosApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => GymProvider()),
         ChangeNotifierProvider(create: (_) => ChatProvider()),
         ChangeNotifierProvider(create: (_) => RouteProvider()),
+        ChangeNotifierProvider(create: (_) => TrackingProvider()),
       ],
       child: MaterialApp(
         title: 'App Pasos',
@@ -61,6 +64,7 @@ class AppPasosApp extends StatelessWidget {
           '/challenge-room': (context) => const ChallengeRoomScreen(),
           '/analytics': (context) => const AnalyticsScreen(),
           '/forgot-password': (context) => const ForgotPasswordScreen(),
+          '/tracker': (context) => const LiveHubScreen(),
         },
       ),
     );

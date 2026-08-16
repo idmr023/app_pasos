@@ -12,6 +12,7 @@ import 'home_screen.dart';
 import 'profile_screen.dart';
 import 'gym/gym_screen.dart';
 import 'chat/chat_screen.dart';
+import 'tracking/live_hub_screen.dart';
 
 import 'routes/routes_screen.dart';
 
@@ -49,7 +50,7 @@ class _MainShellState extends State<MainShell> {
   final List<Widget> _screens = const [
     HomeScreen(),
     GymScreen(),
-    RoutesScreen(),
+    LiveHubScreen(),
     ChatScreen(),
     ProfileScreen(),
   ];
@@ -122,7 +123,7 @@ class _MainShellState extends State<MainShell> {
             items: const [
               BottomNavigationBarItem(icon: Icon(Icons.directions_run), label: 'Pasos'),
               BottomNavigationBarItem(icon: Icon(Icons.fitness_center), label: 'Gimnasio'),
-              BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Rutas'),
+              BottomNavigationBarItem(icon: Icon(Icons.live_tv), label: 'Tracking'),
               BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline), label: 'Chat'),
               BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Perfil'),
             ],
