@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -13,7 +14,7 @@ class LocationService {
   String? _roomCode;
   DateTime? _lastUpdate;
   Duration _updateInterval = const Duration(seconds: 3);
-  double _distanceFilter = 5.0; // meters
+  int _distanceFilter = 5; // meters
 
   bool get isTracking => _isTracking;
   Position? get currentPosition => _currentPosition;
@@ -33,10 +34,7 @@ class LocationService {
     }
   }
 
-  Future<void> startTracking({
-    required String roomCode,
-    required WebSocketChannel wsChannel,
-  }) async {
+  Future<void> startTracking(String roomCode, WebSocketChannel wsChannel) async {
     if (_isTracking) return;
 
     _isTracking = true;
@@ -46,7 +44,7 @@ class LocationService {
 
     // Get initial position
     _currentPosition = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
+      // accuracy: LocationAccuracy.high,
     );
 
     _sendLocationUpdate(_currentPosition!);
@@ -72,7 +70,6 @@ class LocationService {
     Geolocator.getPositionStream().listen((_) {}).cancel();
     _wsChannel = null;
     _roomCode = null;
-    notifyListeners(); // If needed
   }
 
   void _sendLocationUpdate(Position location) {
@@ -84,7 +81,8 @@ class LocationService {
     double pace = 0;
     if (location.speed > 0) {
       // speed in m/s, convert to min/km
-      // 1 m/s = 18 min/km approx (actually 60/3.6 = 16.67)
+      // 1 m/s = 3.6 km/h, so km/h = speed * 3.6
+      // pace min/km = 60 / (speed * 3.6) = 16.67 / speed
       pace = (60 / (location.speed * 3.6)).roundToDouble();
     }
 

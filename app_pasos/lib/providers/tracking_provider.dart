@@ -1,9 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../config/api.dart';
-import '../models/user.dart';
+import '../services/websocket_service.dart';
+import '../services/location_service.dart';
 import '../services/tts_service.dart';
 
 enum TrackingRole { runner, spectator }
@@ -40,16 +38,13 @@ class TrackingProvider extends ChangeNotifier {
     _isTracking = true;
 
     // Connect WebSocket as runner
-    await _wsService.connect(roomCode, isRunner: true);
+    await _wsService.connect(roomCode: roomCode, isRunner: true);
 
     // Subscribe to WebSocket messages
     _wsService.messages.listen(_handleWebSocketMessage);
 
     // Start location service
-    await _locationService.startTracking(
-      roomCode: roomCode,
-      wsChannel: _wsService._channel!,
-    );
+    await _locationService.startTracking(roomCode, _wsService.channel!);
 
     notifyListeners();
   }
@@ -60,7 +55,7 @@ class TrackingProvider extends ChangeNotifier {
     _isTracking = false;
 
     // Connect WebSocket as spectator
-    await _wsService.connect(roomCode, isRunner: false);
+    await _wsService.connect(roomCode: roomCode, isRunner: false);
 
     // Subscribe to WebSocket messages
     _wsService.messages.listen(_handleWebSocketMessage);

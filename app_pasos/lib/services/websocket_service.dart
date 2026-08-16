@@ -11,7 +11,7 @@ class WebSocketService {
   bool _isConnected = false;
   final _storage = const FlutterSecureStorage();
 
-  bool get isConnected => _isConnected;
+  WebSocketChannel? get channel => _channel;
 
   Future<void> connect({required String roomCode, bool isRunner = false}) async {
     if (_isConnected) {
