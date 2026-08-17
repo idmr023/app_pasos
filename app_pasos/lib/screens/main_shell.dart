@@ -8,12 +8,12 @@ import '../providers/xp_provider.dart';
 import '../providers/gym_provider.dart';
 import '../providers/chat_provider.dart';
 import '../providers/route_provider.dart';
+import 'menu_screen.dart';
 import 'home_screen.dart';
 import 'profile_screen.dart';
 import 'gym/gym_screen.dart';
 import 'chat/chat_screen.dart';
 import 'tracking/live_hub_screen.dart';
-
 import 'routes/routes_screen.dart';
 
 class MainShell extends StatefulWidget {
@@ -52,7 +52,7 @@ class _MainShellState extends State<MainShell> {
     GymScreen(),
     LiveHubScreen(),
     ChatScreen(),
-    ProfileScreen(),
+    MenuScreen(),
   ];
 
   @override
@@ -125,7 +125,7 @@ class _MainShellState extends State<MainShell> {
               BottomNavigationBarItem(icon: Icon(Icons.fitness_center), label: 'Gimnasio'),
               BottomNavigationBarItem(icon: Icon(Icons.live_tv), label: 'Tracking'),
               BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline), label: 'Chat'),
-              BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Perfil'),
+              BottomNavigationBarItem(icon: Icon(Icons.menu), label: 'Menú'),
             ],
           ),
         ),
