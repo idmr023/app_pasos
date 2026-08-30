@@ -3,6 +3,8 @@ const router = express.Router();
 const auth = require('../middleware/auth');
 const TrackingSession = require('../models/TrackingSession');
 const LiveMessage = require('../models/LiveMessage');
+const User = require('../models/User');
+const TrackingLocation = require('../models/TrackingLocation');
 
 // Generar código de sala único (6 caracteres)
 function generateRoomCode() {
@@ -68,7 +70,7 @@ router.post('/join', auth, async (req, res) => {
       success: true,
       roomCode: session.code,
       isPublic: session.isPublic,
-      runnerId: session.runner._id,
+      runnerId: session.runner,
       startTime: session.startedAt,
     });
   } catch (error) {
@@ -82,14 +84,14 @@ router.get('/:roomCode', auth, async (req, res) => {
     const { roomCode } = req.params;
 
     const session = await TrackingSession.findOne({ code: roomCode.toUpperCase() }).select(
-      '-runner -__v'
+      '-__v'
     );
 
     if (!session) {
       return res.status(404).json({ error: 'Sala no encontrada' });
     }
 
-    const runnersInfo = await User.findById(session.runner).select('name avatar');
+    const runnersInfo = await User.findById(session.runner).select('displayName avatar');
 
     res.json({
       success: true,
@@ -136,6 +138,7 @@ router.post('/:roomCode/close', auth, async (req, res) => {
         code: session.code,
         totalDistance: session.totalDistance,
         totalTime: (session.endedAt - session.startedAt) / 1000,
+        status: session.status,
       },
     });
   } catch (error) {
@@ -172,7 +175,7 @@ router.get('/:roomCode/messages', auth, async (req, res) => {
     const messages = await LiveMessage.find({ roomCode: roomCode.toUpperCase() })
       .sort({ timestamp: -1 })
       .limit(parseInt(limit))
-      .populate('sender', 'name avatar')
+      .populate('sender', 'displayName avatar')
       .lean();
 
     res.json({

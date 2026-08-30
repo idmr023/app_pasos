@@ -199,6 +199,7 @@ io.on('connection', (socket) => {
       socket.to(socket.roomCode).emit('locationUpdate', {
         latitude: data.latitude,
         longitude: data.longitude,
+        distance: data.distance,
         speed: data.speed,
         pace: data.pace,
         heading: data.heading,
@@ -261,7 +262,7 @@ io.on('connection', (socket) => {
     }
 
     try {
-      const session = await TrackingSession.findOne({ roomCode: socket.roomCode });
+      const session = await TrackingSession.findOne({ code: socket.roomCode });
       if (session) {
         session.status = 'completed';
         session.endedAt = new Date();
