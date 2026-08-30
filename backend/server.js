@@ -147,7 +147,8 @@ io.use(async (socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  console.log(`User ${socket.user.name} connected (ID: ${socket.userId}) to room ${socket.roomCode}`);
+  const userName = socket.user.displayName || socket.user.username;
+  console.log(`User ${userName} connected (ID: ${socket.userId}) to room ${socket.roomCode}`);
 
   // Validar sala
   if (!socket.roomCode) {
@@ -169,13 +170,13 @@ io.on('connection', (socket) => {
   // Notificar a la sala
   socket.to(socket.roomCode).emit('userJoined', {
     userId: socket.userId,
-    name: socket.user.name,
-    message: `${socket.user.name} se unió a la sala`,
+    name: userName,
+    message: `${userName} se unió a la sala`,
   });
 
   // Evento: Actualización de ubicación (corredor)
   socket.on('locationUpdate', async (data) => {
-    if (!socket.handshake.query?.isRunner === true) {
+    if (socket.handshake.query?.isRunner !== 'true') {
       return; // Solo el corredor puede enviar ubicaciones
     }
 
@@ -236,14 +237,11 @@ io.on('connection', (socket) => {
         timestamp: new Date(),
       });
 
-      // Poblar información del remitente
-      await chatMsg.populate('sender', 'name avatar').execPopulate();
-
       // Retransmitir a todos en la sala
       io.to(socket.roomCode).emit('chatMessage', {
         message: message.trim(),
         senderId: socket.userId,
-        senderName: socket.user.name,
+        senderName: userName,
         senderAvatar: socket.user.avatar,
         timestamp: chatMsg.timestamp.toISOString(),
         senderType: isRunnerQuery ? 'runner' : 'spectator',
@@ -282,11 +280,11 @@ io.on('connection', (socket) => {
 
   // Evento: Disconnect
   socket.on('disconnect', () => {
-    console.log(`User ${socket.user.name} disconnected from room ${socket.roomCode}`);
+    console.log(`User ${userName} disconnected from room ${socket.roomCode}`);
     socket.to(socket.roomCode).emit('userLeft', {
       userId: socket.userId,
-      name: socket.user.name,
-      message: `${socket.user.name} ha dejado la sala`,
+      name: userName,
+      message: `${userName} ha dejado la sala`,
     });
   });
 });

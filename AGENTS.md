@@ -12,11 +12,12 @@ docs/            → Documentación para el agente (ARCHITECTURE, NAVIGATION, GY
 
 ## Navegación Principal
 
-BottomNavigationBar con 4 tabs (IndexedStack, todos vivos en memoria):
+BottomNavigationBar con 5 tabs (IndexedStack, todos vivos en memoria):
 - **Pasos** 🏃 — HomeScreen: contador de pasos, retos activos/finalizados, crear/unirse a retos
 - **Gimnasio** 💪 — GymScreen: racha semanal, rutinas, ejercicios, flujo 3-pasos nueva rutina
+- **Tracking** 📡 — LiveHubScreen: carreras en vivo con Socket.IO (corredor comparte GPS en tiempo real, espectadores se unen con código de 6 chars, chat con reacciones + TTS)
 - **Chat** 🤖 — ChatScreen: Coach IA con Gemini (Google AI), chat funcional con memoria persistente y RAG sobre ejercicios
-- **Perfil** 👤 — ProfileScreen: nivel XP, recompensas, editar nombre/avatar, recordatorio
+- **Menú** ☰ — MenuScreen: Rutas (Strava), Perfil, Retos Finalizados, Ajustes
 
 ## Comandos
 
@@ -84,6 +85,9 @@ flutter analyze
 | `/api/xp` | GET xp+level+progress, GET rewards, POST claim, GET weight-rewards |
 | `/api/gym` | GET exercises, CRUD routines, POST workouts, GET streak, GET/POST personal-records |
 | `/api/chat` | POST send message, GET history, DELETE history |
+| `/api/tracking` | POST create (crea sala con código), POST join (valida sala), GET/:roomCode |
+
+**Tracking en vivo**: usa Socket.IO (no WebSocket crudo). El frontend conecta con `socket_io_client` enviando `auth.token` + query `roomCode`/`isRunner`. Eventos: `locationUpdate`, `chatMessage`, `trackingStopped`, `userJoined/Left`.
 
 ## Índices MongoDB
 

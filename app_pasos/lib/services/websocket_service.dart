@@ -1,82 +1,115 @@
-import 'dart:convert';
-import 'package:web_socket_channel/web_socket_channel.dart';
+import 'dart:async';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../config/api.dart';
 
+/// Servicio singleton para la conexión Socket.IO del tracking en vivo.
+///
+/// El backend usa Socket.IO (no WebSocket crudo), por eso se usa
+/// `socket_io_client`. La autenticación se envía en `auth.token` y el
+/// roomCode/isRunner en los query params, tal como espera `server.js`.
 class WebSocketService {
   static final WebSocketService _instance = WebSocketService._internal();
   factory WebSocketService() => _instance;
   WebSocketService._internal();
 
-  WebSocketChannel? _channel;
+  IO.Socket? _socket;
   bool _isConnected = false;
   final _storage = const FlutterSecureStorage();
 
-  WebSocketChannel? get channel => _channel;
+  bool get isConnected => _isConnected;
+
+  /// Stream de eventos de tracking ya parseados:
+  /// {'type': 'locationUpdate'|'chatMessage'|..., 'data': {...}}
+  final StreamController<Map<String, dynamic>> _eventsController =
+      StreamController<Map<String, dynamic>>.broadcast();
+
+  Stream<Map<String, dynamic>> get events => _eventsController.stream;
 
   Future<void> connect({required String roomCode, bool isRunner = false}) async {
-    if (_isConnected) {
-      _channel?.sink.close();
-    }
+    disconnect();
 
-    final token = await _storage.read(key: 'jwt_token');
+    final token = await _storage.read(key: 'auth_token');
     if (token == null) {
       throw Exception('No hay token de autenticación');
     }
 
-    // Build WebSocket URL with query params
-    final wsUrl = 'ws://10.0.2.2:3000/socket?roomCode=$roomCode&isRunner=$isRunner';
+    // Derivar la URL base del servidor a partir de ApiConfig.baseUrl
+    // (ej. https://app-pasos.onrender.com/api -> https://app-pasos.onrender.com)
+    final baseUrl = ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
 
-    _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+    _socket = IO.io(
+      baseUrl,
+      IO.OptionBuilder()
+          .setTransports(['websocket'])
+          .disableAutoConnect()
+          .setAuth({'token': token})
+          .setQuery({
+            'roomCode': roomCode,
+            'isRunner': isRunner.toString(),
+          })
+          .build(),
+    );
 
-    _isConnected = true;
+    _socket!.onConnect((_) {
+      _isConnected = true;
+    });
 
-    // Send authentication message
-    _channel!.sink.add(json.encode({
-      'type': 'authenticate',
-      'token': token,
-      'roomCode': roomCode,
-      'isRunner': isRunner,
-    }));
+    _socket!.onDisconnect((_) {
+      _isConnected = false;
+    });
 
-    // Listen for messages
-    _channel!.stream.listen(_onMessage, onError: _onError, onDone: _onDone);
+    _socket!.onConnectError((err) {
+      _isConnected = false;
+      _eventsController.add({
+        'type': 'error',
+        'data': {'message': 'Error de conexión: $err'},
+      });
+    });
+
+    _socket!.onError((err) {
+      _eventsController.add({
+        'type': 'error',
+        'data': {'message': '$err'},
+      });
+    });
+
+    // Eventos del backend -> stream unificado
+    for (final event in [
+      'connected',
+      'locationUpdate',
+      'chatMessage',
+      'trackingStopped',
+      'userJoined',
+      'userLeft',
+      'error',
+    ]) {
+      _socket!.on(event, (data) {
+        _eventsController.add({'type': event, 'data': data});
+      });
+    }
+
+    _socket!.connect();
   }
 
-  void _onMessage(dynamic message) {
-    // Return raw message to listener
-    // The TrackingProvider will handle parsing
+  void sendLocation(Map<String, dynamic> data) {
+    if (!_isConnected || _socket == null) return;
+    _socket!.emit('locationUpdate', data);
   }
 
   void sendChatMessage(String message) {
-    if (_channel == null || !_isConnected) return;
-    _channel!.sink.add(json.encode({
-      'type': 'chatMessage',
-      'message': message,
-    }));
+    if (!_isConnected || _socket == null) return;
+    _socket!.emit('chatMessage', {'message': message});
   }
 
   void sendStopTracking() {
-    if (_channel == null || !_isConnected) return;
-    _channel!.sink.add(json.encode({
-      'type': 'stopTracking',
-    }));
+    if (!_isConnected || _socket == null) return;
+    _socket!.emit('stopTracking');
   }
-
-  Stream<dynamic> get messages => _channel!.stream;
 
   void disconnect() {
-    _channel?.sink.close();
-    _channel = null;
+    _socket?.dispose();
+    _socket = null;
     _isConnected = false;
-  }
-
-  void _onError(Object error) {
-    print('WebSocket Error: $error');
-    _isConnected = false;
-  }
-
-  void _onDone() {
-    _isConnected = false;
-    _channel = null;
   }
 }

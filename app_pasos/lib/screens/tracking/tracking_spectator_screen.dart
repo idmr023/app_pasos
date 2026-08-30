@@ -16,6 +16,8 @@ class TrackingSpectatorScreen extends StatefulWidget {
 }
 
 class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
+  final TextEditingController _messageController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -24,6 +26,20 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
       final provider = context.read<TrackingProvider>();
       provider.joinAsSpectator(widget.roomCode);
     });
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    context.read<TrackingProvider>().leaveRoom();
+    super.dispose();
+  }
+
+  void _sendMessage() {
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
+    context.read<TrackingProvider>().sendMessage(text);
+    _messageController.clear();
   }
 
   @override
@@ -74,7 +90,7 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Velocidad: ${(currentLoc['speed'] ?? 0) * 3.6} km/h',
+                      'Velocidad: ${((currentLoc['speed'] ?? 0) * 3.6).toStringAsFixed(1)} km/h',
                       style: AppTheme.bodySmall,
                     ),
                   ],
@@ -166,20 +182,20 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
                   color: AppTheme.surface,
                   child: Row(
                     children: [
-      Expanded(
-        child: TextField(
-          onSubmitted: (_) =>
-              provider.sendMessage(_),
-          decoration: const InputDecoration(
-            hintText: 'Escribe un mensaje...',
-            border: OutlineInputBorder(),
-          ),
-        ),
-      ),
-      IconButton(
-        icon: const Icon(Icons.send, color: AppTheme.primary),
-        onPressed: () => provider.sendMessage('¡Fuerza!'),
-      ),
+                      Expanded(
+                        child: TextField(
+                          controller: _messageController,
+                          onSubmitted: (_) => _sendMessage(),
+                          decoration: const InputDecoration(
+                            hintText: 'Escribe un mensaje...',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.send, color: AppTheme.primary),
+                        onPressed: _sendMessage,
+                      ),
     ],
                   ),
                 ),

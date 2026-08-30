@@ -1,8 +1,10 @@
-import 'dart:convert';
+import 'dart:async';
 import 'package:geolocator/geolocator.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
 
+/// Servicio singleton de geolocalización para el tracking en vivo.
+///
+/// Emite un stream de posiciones GPS mientras el tracking está activo.
+/// El TrackingProvider es quien reenvía esas posiciones por el socket.
 class LocationService {
   static final LocationService _instance = LocationService._internal();
   factory LocationService() => _instance;
@@ -10,21 +12,23 @@ class LocationService {
 
   Position? _currentPosition;
   bool _isTracking = false;
-  WebSocketChannel? _wsChannel;
-  String? _roomCode;
-  DateTime? _lastUpdate;
-  Duration _updateInterval = const Duration(seconds: 3);
-  int _distanceFilter = 5; // meters
+  StreamSubscription<Position>? _positionSubscription;
+
+  static const int _distanceFilterMeters = 5;
 
   bool get isTracking => _isTracking;
   Position? get currentPosition => _currentPosition;
 
   Future<void> init() async {
-    // Verify permissions
     await _checkAndRequestPermissions();
   }
 
   Future<void> _checkAndRequestPermissions() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      throw Exception('El servicio de ubicación está desactivado');
+    }
+
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -34,72 +38,42 @@ class LocationService {
     }
   }
 
-  Future<void> startTracking(String roomCode, WebSocketChannel wsChannel) async {
+  /// Inicia el tracking y devuelve un stream de posiciones.
+  ///
+  /// Obtiene primero una posición inicial y luego escucha el stream
+  /// periódico de GPS con alta precisión.
+  Stream<Position> startTracking() async* {
     if (_isTracking) return;
 
+    await _checkAndRequestPermissions();
     _isTracking = true;
-    _roomCode = roomCode;
-    _wsChannel = wsChannel;
-    _lastUpdate = DateTime.now();
 
-    // Get initial position
+    // Posición inicial
     _currentPosition = await Geolocator.getCurrentPosition(
-      // accuracy: LocationAccuracy.high,
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+      ),
+    );
+    yield _currentPosition!;
+
+    // Stream periódico de ubicaciones
+    final stream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: _distanceFilterMeters,
+      ),
     );
 
-    _sendLocationUpdate(_currentPosition!);
-
-    // Start periodic location updates
-    Geolocator.getPositionStream(
-      locationSettings: LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: _distanceFilter,
-        timeLimit: _updateInterval,
-      ),
-    ).listen((Position position) {
+    await for (final position in stream) {
+      if (!_isTracking) break;
       _currentPosition = position;
-      _sendLocationUpdate(position);
-    }).onError((error) {
-      print('Error en stream de ubicación: $error');
-    });
+      yield position;
+    }
   }
 
   Future<void> stopTracking() async {
-    if (!_isTracking) return;
     _isTracking = false;
-    Geolocator.getPositionStream().listen((_) {}).cancel();
-    _wsChannel = null;
-    _roomCode = null;
-  }
-
-  void _sendLocationUpdate(Position location) {
-    if (_wsChannel == null || _roomCode == null) return;
-
-    final now = DateTime.now().millisecondsSinceEpoch;
-
-    // Calculate pace (min/km) from speed (m/s)
-    double pace = 0;
-    if (location.speed > 0) {
-      // speed in m/s, convert to min/km
-      // 1 m/s = 3.6 km/h, so km/h = speed * 3.6
-      // pace min/km = 60 / (speed * 3.6) = 16.67 / speed
-      pace = (60 / (location.speed * 3.6)).roundToDouble();
-    }
-
-    final data = {
-      'roomCode': _roomCode,
-      'latitude': location.latitude,
-      'longitude': location.longitude,
-      'speed': location.speed,
-      'pace': pace,
-      'timestamp': now,
-      'accuracy': location.accuracy,
-    };
-
-    _wsChannel!.sink.add('locationUpdate:${json.encode(data)}');
-  }
-
-  void notifyListeners() {
-    // Placeholder for future notification system
+    await _positionSubscription?.cancel();
+    _positionSubscription = null;
   }
 }

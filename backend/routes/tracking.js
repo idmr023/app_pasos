@@ -13,7 +13,7 @@ function generateRoomCode() {
 router.post('/create', auth, async (req, res) => {
   try {
     const { title, isPublic } = req.body;
-    const code = generateRoomCode();
+    let code = generateRoomCode();
 
     // Validar que el código no exista
     let existing = await TrackingSession.findOne({ code }).lean();

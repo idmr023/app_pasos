@@ -2,15 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:app_pasos/config/theme.dart';
 import 'package:app_pasos/providers/tracking_provider.dart';
+import 'package:share_plus/share_plus.dart'; // Añadido
 
 class TrackingRunnerScreen extends StatefulWidget {
   final String roomCode;
   final bool isRunner;
+  final double goalDistance; // Nueva meta en km
 
   const TrackingRunnerScreen({
     Key? key,
     required this.roomCode,
-    required this.isRunner,
+    required this.isRunner, // Enlace explícito con this.isRunner
+    this.goalDistance = 5.0, // Meta por defecto 5km
   }) : super(key: key);
 
   @override
@@ -18,14 +21,29 @@ class TrackingRunnerScreen extends StatefulWidget {
 }
 
 class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
+  final TextEditingController _messageController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     // Initialize provider and start tracking
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<TrackingProvider>();
-      provider.startAsRunner(widget.roomCode);
+      provider.startAsRunner(widget.roomCode, widget.goalDistance, widget.isRunner);
     });
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  void _sendMessage() {
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
+    context.read<TrackingProvider>().sendMessage(text);
+    _messageController.clear();
   }
 
   @override
@@ -39,7 +57,20 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
             tooltip: 'Detener tracking',
             onPressed: () {
               context.read<TrackingProvider>().stopTracking();
+              context.read<TrackingProvider>().leaveRoom();
               Navigator.pop(context);
+            },
+          ),
+          // Botón de Compartir
+          IconButton(
+            icon: const Icon(Icons.share, color: AppTheme.primary),
+            tooltip: 'Compartir código',
+            onPressed: () {
+              final code = Provider.of<TrackingProvider>(context, listen: false).roomCode ?? '';
+              if (code.isNotEmpty) {
+                final shareText = '¡Sígueme en mi carrera en vivo! Ingresa al código: $code';
+                Share.share(shareText);
+              }
             },
           ),
         ],
@@ -53,16 +84,41 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
   }
 
   Widget _buildRunnerBody(TrackingProvider provider) {
+    // Calculamos el progreso: (distancia actual / meta) * 100
+    double progress = 0.0;
+    if (provider.currentDistance > 0 && widget.goalDistance > 0) {
+      progress = (provider.currentDistance / widget.goalDistance).clamp(0.0, 1.0);
+    }
+
     return Stack(
       children: [
+        // Progress Bar at the top
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: LinearProgressIndicator(
+              value: progress,
+              backgroundColor: Colors.grey[900],
+              color: AppTheme.primary,
+            ),
+          ),
+        ),
         // Map area (placeholder for now)
-        Container(
-          height: 300,
-          color: Colors.grey[900],
-          child: const Center(
-            child: Text(
-              'Mapa en tiempo real - GPS activo',
-              style: TextStyle(color: Colors.white70),
+        Positioned(
+          top: 40,
+          left: 0,
+          right: 0,
+          child: Container(
+            height: 250,
+            color: Colors.grey[900],
+            child: Center(
+              child: Text(
+                'Distancia: ${provider.currentDistance.toStringAsFixed(1)} km / ${widget.goalDistance} km',
+                style: const TextStyle(color: Colors.white70),
+              ),
             ),
           ),
         ),
@@ -113,8 +169,8 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
                     children: [
                       Expanded(
                         child: TextField(
-                          onSubmitted: (_) =>
-                              provider.sendMessage(_),
+                          controller: _messageController,
+                          onSubmitted: (_) => _sendMessage(),
                           decoration: InputDecoration(
                             hintText: 'Escribe un mensaje...',
                             border: OutlineInputBorder(
@@ -125,8 +181,7 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
                       ),
                       IconButton(
                         icon: const Icon(Icons.send, color: AppTheme.primary),
-                        onPressed: () =>
-                            provider.sendMessage('¡Vamos!'),
+                        onPressed: _sendMessage,
                       ),
                     ],
                   ),
