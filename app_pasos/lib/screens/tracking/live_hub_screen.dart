@@ -18,13 +18,6 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
   final _storage = const FlutterSecureStorage();
   bool _isLoading = false;
 
-  static const _goalOptions = <String, double>{
-    'Libre (sin meta)': 0,
-    '5 km': 5.0,
-    '10 km': 10.0,
-    '21.1 km (Media Maratón)': 21.1,
-  };
-
   Future<String?> _createTrackingSession() async {
     final token = await _storage.read(key: 'auth_token');
     if (token == null) {
@@ -79,55 +72,8 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
   }
 
   Future<void> _startAsRunner() async {
-    // Modal de selección de meta con estado real
-    String selected = _goalOptions.keys.elementAt(1); // '5 km' por defecto
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: AppTheme.surface,
-              title: const Text('Objetivo de Distancia'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: _goalOptions.keys.map((option) {
-                  return RadioListTile<String>(
-                    title: Text(option),
-                    value: option,
-                    groupValue: selected,
-                    activeColor: AppTheme.primary,
-                    onChanged: (value) {
-                      setDialogState(() => selected = value!);
-                    },
-                  );
-                }).toList(),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('Cancelar'),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primary,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text('Iniciar'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (confirmed != true) return; // Usuario canceló
-
-    final goalKm = _goalOptions[selected]!;
-
     // Crear sesión real en el backend para obtener un roomCode válido
+    // y arrancar la grabación de inmediato (sin elegir meta previa).
     setState(() => _isLoading = true);
     String? roomCode;
     try {
@@ -146,11 +92,12 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => TrackingRunnerScreen(
-          roomCode: roomCode!,
-          isRunner: true,
-          goalDistance: goalKm,
-        ),
+        builder:
+            (_) => TrackingRunnerScreen(
+              roomCode: roomCode!,
+              isRunner: true,
+              goalDistance: 0, // Sin meta: se muestra la distancia en vivo
+            ),
       ),
     );
   }
@@ -266,8 +213,10 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
                     icon: const Icon(Icons.play_arrow_rounded, size: 24),
                     label: const Text(
                       'Iniciar mi seguimiento',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -285,15 +234,18 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
                     icon: const Icon(Icons.person_search, size: 24),
                     label: const Text(
                       'Unirme como espectador',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 48),
                   Text(
                     'O ingresa un código de 6 caracteres',
-                    style:
-                        AppTheme.bodySmall.copyWith(color: AppTheme.darkGrey),
+                    style: AppTheme.bodySmall.copyWith(
+                      color: AppTheme.darkGrey,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 ],

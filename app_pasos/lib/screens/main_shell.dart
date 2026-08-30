@@ -123,7 +123,11 @@ class _MainShellState extends State<MainShell> {
             items: const [
               BottomNavigationBarItem(icon: Icon(Icons.directions_run), label: 'Pasos'),
               BottomNavigationBarItem(icon: Icon(Icons.fitness_center), label: 'Gimnasio'),
-              BottomNavigationBarItem(icon: Icon(Icons.live_tv), label: 'Tracking'),
+               BottomNavigationBarItem(
+                  key: ValueKey('bottomNavTracking'),
+                  icon: Icon(Icons.live_tv),
+                  label: 'Tracking',
+                ),
               BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline), label: 'Chat'),
               BottomNavigationBarItem(icon: Icon(Icons.menu), label: 'Menú'),
             ],

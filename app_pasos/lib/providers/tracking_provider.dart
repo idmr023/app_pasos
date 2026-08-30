@@ -52,7 +52,11 @@ class TrackingProvider extends ChangeNotifier {
   }
 
   // --- Runner ---
-  Future<void> startAsRunner(String roomCode, double goal, bool isRunner) async {
+  Future<void> startAsRunner(
+    String roomCode,
+    double goal,
+    bool isRunner,
+  ) async {
     _role = TrackingRole.runner;
     _roomCode = roomCode;
     _isRunner = isRunner;
@@ -64,7 +68,13 @@ class TrackingProvider extends ChangeNotifier {
     _locations.clear();
 
     try {
-      await _ttsService.init();
+      // Inicializar TTS de forma best-effort: un fallo del motor de voz
+      // (dispositivo sin TTS, etc.) no debe impedir que el tracking arranque.
+      try {
+        await _ttsService.init();
+      } catch (ttsError) {
+        debugPrint('[Tracking] TTS no disponible: $ttsError');
+      }
 
       // Conectar socket como corredor
       await _wsService.connect(roomCode: roomCode, isRunner: true);
@@ -72,12 +82,13 @@ class TrackingProvider extends ChangeNotifier {
       _listenToSocket();
 
       // Iniciar GPS y reenviar posiciones por socket
-      _positionSubscription =
-          _locationService.startTracking().listen(_sendPositionAsRunner,
-              onError: (e) {
-        _error = 'Error de GPS: $e';
-        notifyListeners();
-      });
+      _positionSubscription = _locationService.startTracking().listen(
+        _sendPositionAsRunner,
+        onError: (e) {
+          _error = 'Error de GPS: $e';
+          notifyListeners();
+        },
+      );
 
       notifyListeners();
     } catch (e) {
@@ -147,6 +158,12 @@ class TrackingProvider extends ChangeNotifier {
     _currentRunnerLocation = null;
     _messages = [];
     _locations.clear();
+
+    // Cancelar cualquier rastreo GPS previo (p.ej. el del corredor)
+    _positionSubscription?.cancel();
+    _positionSubscription = null;
+    _lastPosition = null;
+    _locationService.stopTracking();
 
     try {
       await _wsService.connect(roomCode: roomCode, isRunner: false);
@@ -236,7 +253,10 @@ class TrackingProvider extends ChangeNotifier {
     // El corredor escucha los mensajes de ánimo de los espectadores
     if (_role != TrackingRole.runner) return;
     final message = msg['message'];
-    if (message == '🔥' || message == '💪' || message == '⚡' || message == '👏') {
+    if (message == '🔥' ||
+        message == '💪' ||
+        message == '⚡' ||
+        message == '👏') {
       final senderName = msg['senderName'] ?? 'Alguien';
       _ttsService.speakSupportMessage(senderName, message);
     }

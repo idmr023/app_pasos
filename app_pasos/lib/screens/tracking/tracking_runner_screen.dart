@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:app_pasos/config/theme.dart';
 import 'package:app_pasos/providers/tracking_provider.dart';
@@ -29,7 +30,11 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
     // Initialize provider and start tracking
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<TrackingProvider>();
-      provider.startAsRunner(widget.roomCode, widget.goalDistance, widget.isRunner);
+      provider.startAsRunner(
+        widget.roomCode,
+        widget.goalDistance,
+        widget.isRunner,
+      );
     });
   }
 
@@ -66,9 +71,15 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
             icon: const Icon(Icons.share, color: AppTheme.primary),
             tooltip: 'Compartir código',
             onPressed: () {
-              final code = Provider.of<TrackingProvider>(context, listen: false).roomCode ?? '';
+              final code =
+                  Provider.of<TrackingProvider>(
+                    context,
+                    listen: false,
+                  ).roomCode ??
+                  '';
               if (code.isNotEmpty) {
-                final shareText = '¡Sígueme en mi carrera en vivo! Ingresa al código: $code';
+                final shareText =
+                    '¡Sígueme en mi carrera en vivo! Ingresa al código: $code';
                 Share.share(shareText);
               }
             },
@@ -87,25 +98,29 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
     // Calculamos el progreso: (distancia actual / meta) * 100
     double progress = 0.0;
     if (provider.currentDistance > 0 && widget.goalDistance > 0) {
-      progress = (provider.currentDistance / widget.goalDistance).clamp(0.0, 1.0);
+      progress = (provider.currentDistance / widget.goalDistance).clamp(
+        0.0,
+        1.0,
+      );
     }
 
     return Stack(
       children: [
-        // Progress Bar at the top
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: LinearProgressIndicator(
-              value: progress,
-              backgroundColor: Colors.grey[900],
-              color: AppTheme.primary,
+        // Progress Bar at the top (solo si hay meta definida)
+        if (widget.goalDistance > 0)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: LinearProgressIndicator(
+                value: progress,
+                backgroundColor: Colors.grey[900],
+                color: AppTheme.primary,
+              ),
             ),
           ),
-        ),
         // Map area (placeholder for now)
         Positioned(
           top: 40,
@@ -116,7 +131,9 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
             color: Colors.grey[900],
             child: Center(
               child: Text(
-                'Distancia: ${provider.currentDistance.toStringAsFixed(1)} km / ${widget.goalDistance} km',
+                widget.goalDistance > 0
+                    ? 'Distancia: ${provider.currentDistance.toStringAsFixed(1)} km / ${widget.goalDistance} km'
+                    : 'Distancia: ${provider.currentDistance.toStringAsFixed(1)} km',
                 style: const TextStyle(color: Colors.white70),
               ),
             ),
@@ -139,12 +156,48 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
                   children: [
                     Text(
                       'VELOCIDAD: ${provider.currentRunnerLocation?['speed'] != null ? (provider.currentRunnerLocation!['speed'] * 3.6).toStringAsFixed(1) + ' km/h' : '--'}',
+                      key: const ValueKey('trackingSpeedText'),
                       style: AppTheme.titleMedium,
                     ),
                     const SizedBox(height: 4),
                     Text(
                       'RITMO: ${provider.currentRunnerLocation?['pace'] != null ? '${provider.currentRunnerLocation!['pace'].toInt()} min/km' : '--'}',
                       style: AppTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.meeting_room,
+                          size: 18,
+                          color: AppTheme.primary,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Sala: ${widget.roomCode}',
+                          key: const ValueKey('trackingRoomCodeText'),
+                          style: AppTheme.bodyMedium.copyWith(
+                            color: AppTheme.primary,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.copy,
+                            size: 16,
+                            color: AppTheme.primary,
+                          ),
+                          tooltip: 'Copiar código',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () {
+                            Clipboard.setData(
+                              ClipboardData(text: widget.roomCode),
+                            );
+                          },
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -164,7 +217,10 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
             child: Column(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Row(
                     children: [
                       Expanded(
@@ -181,6 +237,7 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
                       ),
                       IconButton(
                         icon: const Icon(Icons.send, color: AppTheme.primary),
+                        tooltip: 'Enviar',
                         onPressed: _sendMessage,
                       ),
                     ],
