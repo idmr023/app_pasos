@@ -4,25 +4,29 @@
 // IMPORTANTE: usa package:test (PROHIBIDO flutter_test). Los finders son
 // selectores estables (texto/tooltip/tipo) — sin IDs temporales.
 //
-// JOURNEY (user journey):
-//   1. Ir a la pestaña Tracking (LiveHubScreen).
-//   2. Iniciar seguimiento -> se crea la sala y arranca la grabación al
-//      instante (sin diálogo de meta). Se muestra 'Sala: <CODE>' en pantalla.
-//   3. Registrar distancia en vivo (VELOCIDAD deja de ser '--' cuando hay fix).
-//   4. Enviar un mensaje de chat como corredor y verificar el eco propio
-//      (valida socket + persistencia LiveMessage en backend).
-//   5. Verificar endpoints backend: /tracking/<code> (activo), history y messages.
-//   6. Volver (sin detener) y unirse como espectador con código inválido ->
-//      snackbar 'Sala no encontrada o ya finalizó' (404).
-//   7. Unirse como espectador con el código real -> reacciones y chat.
-//   8. Cerrar la sesión desde el backend y confirmar status 'completed'
-//      (re-unirse con el mismo código ahora falla: 400).
+// JOURNEY (nuevo flujo):
+//   FASE A - Corredor:
+//     1. Ir a la pestaña Tracking (LiveHubScreen).
+//     2. Iniciar seguimiento -> creación de sala + grabación directa.
+//     3. Verificar código de sala (trackingRoomCodeText) y VELOCIDAD.
+//     4. Chat como corredor: mensaje + eco propio.
+//     5. Backend: sesión activa, history y messages.
+//     6. Back -> diálogo de confirmación -> "Quedarme" (cancela, sigue en sala).
+//     7. Back otra vez -> "Salir" (detiene + cierra sesión) -> LiveHub.
+//     8. Backend: sesión status=completed; POST /join con código cerrado -> 400.
+//   FASE B - Espectador:
+//     9. Crear sala activa nueva vía backend (sin entrar como corredor).
+//    10. Prueba negativa: código ZZZZZZ -> snackbar 404.
+//    11. Unirse como espectador a la sala nueva -> reacciones + chat con eco.
+//    12. Backend: reacción y mensaje del espectador persistidos.
+//    13. Cerrar sala vía backend -> 200 + status=completed.
+//    14. Re-join a sala completada -> 400.
 //
 // Ejecución:
 //   flutter drive --driver=integration_test/tracking_flow_test.dart \
 //     --target=test_driver/app.dart \
 //     --dart-define=BACKEND_URL=https://app-pasos.onrender.com/api \
-//     -d CPH2735
+//     -d <device>
 
 import 'dart:convert';
 
@@ -30,15 +34,13 @@ import 'package:flutter_driver/flutter_driver.dart';
 import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
 
-// El host del driver no recibe --dart-define del target; por eso el fallback
-// apunta al mismo backend de producción desde el que se ejecuta la app.
 const _backendBase = String.fromEnvironment(
   'BACKEND_URL',
   defaultValue: 'https://app-pasos.onrender.com/api',
 );
 
 const _waitShort = Duration(seconds: 20);
-const _waitLong = Duration(seconds: 45);
+const _waitLong  = Duration(seconds: 45);
 
 FlutterDriver? _driver;
 String? _token;
@@ -49,11 +51,8 @@ void main() {
     _driver = await f;
     await _driver!.checkHealth();
     _token = await _driver!.requestData('token');
-    expect(
-      _token,
-      isNotEmpty,
-      reason: 'El usuario debe estar logueado (auth_token en storage)',
-    );
+    expect(_token, isNotEmpty,
+        reason: 'El usuario debe estar logueado (auth_token en storage)');
   });
 
   tearDownAll(() async {
@@ -66,161 +65,149 @@ void main() {
     final driver = _driver!;
     final tag = codeTag++;
 
-    // 1) Navegar a la pestaña Tracking usando ValueKey estable
-    await driver.tap(find.byValueKey('bottomNavTracking'));
-    await driver.waitFor(
-      find.text('Live Track & Support'),
-      timeout: _waitShort,
-    );
+    // ── FASE A: CORREDOR ──────────────────────────────────────────────
 
-    // 2) Iniciar seguimiento -> grabación directa, sin diálogo de meta
+    // 1) Navegar a la pestaña Tracking
+    await driver.tap(find.byValueKey('bottomNavTracking'));
+    await driver.waitFor(find.text('Live Track & Support'), timeout: _waitShort);
+
+    // 2) Iniciar seguimiento
     await driver.tap(find.text('Iniciar mi seguimiento'));
     await driver.waitFor(find.text('Tracking en Curso'), timeout: _waitShort);
 
-    // Leer y validar el código de sala mostrado
-    final salaText = await driver.getText(
-      find.byValueKey('trackingRoomCodeText'),
-    );
+    // 3) Leer código de sala
+    final salaText = await driver.getText(find.byValueKey('trackingRoomCodeText'));
     final roomCode = salaText.split('Sala: ').last.trim().toUpperCase();
-    expect(
-      roomCode.length,
-      6,
-      reason: 'Código de sala de 6 caracteres: $roomCode',
-    );
-    print('[$tag] Sala creada: $roomCode');
+    expect(roomCode.length, 6, reason: 'Código de sala de 6 caracteres: $roomCode');
+    print('[$tag] Sala corredor creada: $roomCode');
 
-    // 3) Backend: la sesión existe y está activa
+    // 4) Backend: sesión activa
     await _expectBackendActive(roomCode);
 
-    // 4) Distancia en vivo (GPS) — aserción tolerante
+    // 5) GPS soft (tolerante)
     await _waitForGpsFix(driver);
 
-    // 5) Chat como corredor: mensaje único + eco propio en pantalla
+    // 6) Chat corredor
     final runnerMsg = 'R-$roomCode-$tag';
     await driver.tap(find.byType('TextField'));
     await driver.enterText(runnerMsg);
     await driver.tap(find.byTooltip('Enviar'));
     await driver.waitFor(find.text(runnerMsg), timeout: _waitShort);
-    print('[$tag] Eco del corredor visible en pantalla');
+    print('[$tag] Eco del corredor visible');
 
-    // 6) Backend: mensaje persistido en LiveMessage + history responde
+    // 7) Backend: history + messages
     final history = await _getBackend('/tracking/$roomCode/history');
     expect(history['success'], isTrue);
     expect(history['locations'], isA<List>());
-    print(
-      '[$tag] Ubicaciones persistidas en backend: ${(history['locations'] as List).length}',
-    );
+    print('[$tag] Locations en backend: ${(history['locations'] as List).length}');
 
     final messages = await _getBackend('/tracking/$roomCode/messages');
     expect(messages['success'], isTrue);
     expect(
-      (messages['messages'] as List).map(
-        (m) => (m as Map<String, dynamic>)['message'],
-      ),
+      (messages['messages'] as List).map((m) => (m as Map<String, dynamic>)['message']),
       contains(runnerMsg),
       reason: 'El mensaje del corredor debe existir en backend',
     );
     print('[$tag] Mensaje del corredor persistido en backend');
 
-    // 7) Volver (sin detener la sesión) -> LiveHub
+    // 8) Back -> diálogo -> "Quedarme" (cancela, sigue en runner)
     await driver.tap(find.byType('BackButton'));
-    await driver.waitFor(
-      find.text('Live Track & Support'),
-      timeout: _waitShort,
-    );
-    print('[$tag] Runner regresó a LiveHub sin detener sesión');
+    await driver.waitFor(find.text('Quedarme'), timeout: _waitShort);
+    await driver.tap(find.text('Quedarme'));
+    await driver.waitFor(find.text('Tracking en Curso'), timeout: _waitShort);
+    print('[$tag] Diálogo cancelado: sigue en runner');
 
-    // 8) Espectador negativo: código inexistente -> snackbar de error (404)
-    await driver.tap(find.text('Unirme como espectador'));
-await driver.waitFor(find.byType('TextField'), timeout: _waitShort);
-     await driver.tap(find.byType('TextField'));
-     await driver.enterText('ZZZZZZ');
-    await driver.tap(find.text('Unirse'));
-    await driver.waitFor(
-      find.text('Sala no encontrada o ya finalizó'),
-      timeout: _waitShort,
-    );
-    await driver.waitForAbsent(
-      find.text('Sala no encontrada o ya finalizó'),
-      timeout: _waitShort,
-    );
-    print('[$tag] Espectador negativo: 404 validado en UI');
+    // 9) Back otra vez -> "Salir" (detiene + cierra sesión)
+    await driver.tap(find.byType('BackButton'));
+    await driver.waitFor(find.text('Salir'), timeout: _waitShort);
+    await driver.tap(find.text('Salir'));
+    await driver.waitFor(find.text('Live Track & Support'), timeout: _waitShort);
+    print('[$tag] Sesión corredor cerrada desde UI');
 
-    final badJoin = await _postBackend(
-      '/tracking/join',
-      body: {'roomCode': 'ZZZZZZ'},
-    );
-    expect(
-      badJoin.statusCode,
-      404,
-      reason: 'POST /tracking/join con código inválido debe responder 404',
-    );
+    // 10) Backend: sesión completada + re-join 400
+    final close = await _postBackend('/tracking/$roomCode/close');
+    final closeJson = jsonDecode(close.body) as Map<String, dynamic>;
+    expect(close.statusCode, 200, reason: 'POST close debe responder 200');
+    expect((closeJson['session'] as Map<String, dynamic>)['status'], 'completed',
+        reason: 'Cerrar sesión debe marcarla completed');
+    print('[$tag] Sesión corredor status=completed');
 
-    // 9) Espectador positivo: unirse con el código de la sala activa
+    final lateJoin = await _postBackend('/tracking/join', body: {'roomCode': roomCode});
+    expect(lateJoin.statusCode, 400,
+        reason: 'Unirse a sesión completada debe responder 400');
+    print('[$tag] Re-join a corredor completado -> 400 (correcto)');
+
+    // ── FASE B: ESPECTADOR ───────────────────────────────────────────
+
+    // 11) Crear sala activa nueva vía backend (sin entrar como corredor)
+    final createResp = await _postBackend('/tracking/create',
+        body: {'title': 'Sala Espectador $tag', 'isPublic': true});
+    expect(createResp.statusCode, 201, reason: 'Create debe responder 201');
+    final createJson = jsonDecode(createResp.body) as Map<String, dynamic>;
+    final spectatorRoom = (createJson['roomCode'] as String).toUpperCase();
+    print('[$tag] Sala espectador creada: $spectatorRoom');
+
+    // 12) Prueba negativa: código ZZZZZZ
     await driver.tap(find.text('Unirme como espectador'));
     await driver.waitFor(find.byType('TextField'), timeout: _waitShort);
     await driver.tap(find.byType('TextField'));
-    await driver.enterText(roomCode);
+    await driver.enterText('ZZZZZZ');
     await driver.tap(find.text('Unirse'));
-    await driver.waitFor(find.text('Sala: $roomCode'), timeout: _waitShort);
-    await driver.waitFor(find.text('🔥'), timeout: _waitShort);
-    print('[$tag] Espectador dentro de la sala $roomCode');
+    await driver.waitFor(find.text('Sala no encontrada o ya finalizó'), timeout: _waitShort);
+    print('[$tag] Espectador negativo: 404 validado en UI');
 
-    // Reacción + mensaje único del espectador
+    final badJoin = await _postBackend('/tracking/join', body: {'roomCode': 'ZZZZZZ'});
+    expect(badJoin.statusCode, 404,
+        reason: 'POST /tracking/join con código inválido debe responder 404');
+    print('[$tag] Backend 404 para ZZZZZZ');
+
+    // 13) Unirse como espectador a la sala nueva
+    await driver.tap(find.text('Unirme como espectador'));
+    await driver.waitFor(find.byType('TextField'), timeout: _waitShort);
+    await driver.tap(find.byType('TextField'));
+    await driver.enterText(spectatorRoom);
+    await driver.tap(find.text('Unirse'));
+    await driver.waitFor(find.text('Sala: $spectatorRoom'), timeout: _waitShort);
+    await driver.waitFor(find.text('🔥'), timeout: _waitShort);
+    print('[$tag] Espectador dentro de la sala $spectatorRoom');
+
+    // 14) Reacción + mensaje espectador
     await driver.tap(find.text('🔥'));
-    final spectMsg = 'S-$roomCode-$tag';
+    final spectMsg = 'S-$spectatorRoom-$tag';
     await driver.tap(find.byType('TextField'));
     await driver.enterText(spectMsg);
     await driver.tap(find.byTooltip('Enviar'));
     await driver.waitFor(find.text(spectMsg), timeout: _waitShort);
     print('[$tag] Chat del espectador con eco visible');
 
-    // Backend: reacción y mensaje del espectador persistidos
-    final messages2 = await _getBackend('/tracking/$roomCode/messages');
-    final allTexts =
-        (messages2['messages'] as List)
-            .map((m) => (m as Map<String, dynamic>)['message'])
-            .toList();
+    // 15) Backend: reacción y mensaje del espectador persistidos
+    final messages2 = await _getBackend('/tracking/$spectatorRoom/messages');
+    final allTexts = (messages2['messages'] as List)
+        .map((m) => (m as Map<String, dynamic>)['message'])
+        .toList();
     expect(allTexts, contains('🔥'), reason: 'Reacción desde backend');
-    expect(
-      allTexts,
-      contains(spectMsg),
-      reason: 'Mensaje espectador desde backend',
-    );
-    print('[$tag] Reacción y mensaje del espectador persistidos');
+    expect(allTexts, contains(spectMsg), reason: 'Mensaje espectador desde backend');
+    print('[$tag] Reacción y mensaje del espectador en backend');
 
-    // 10) Salir del espectador y cerrar la sesión desde el backend
+    // 16) Cerrar sesión espectador + re-join 400
     await driver.tap(find.byType('BackButton'));
-    await driver.waitFor(
-      find.text('Live Track & Support'),
-      timeout: _waitShort,
-    );
+    await driver.waitFor(find.text('Live Track & Support'), timeout: _waitShort);
 
-    final close = await _postBackend('/tracking/$roomCode/close');
-    final closeJson = jsonDecode(close.body) as Map<String, dynamic>;
-    expect(close.statusCode, 200, reason: 'POST close debe responder 200');
-    expect(
-      (closeJson['session'] as Map<String, dynamic>)['status'],
-      'completed',
-      reason: 'Cerrar la sesión debe marcarla completed',
-    );
-    print('[$tag] Sesión cerrada -> status completed');
+    final close2 = await _postBackend('/tracking/$spectatorRoom/close');
+    final close2Json = jsonDecode(close2.body) as Map<String, dynamic>;
+    expect(close2.statusCode, 200);
+    expect((close2Json['session'] as Map<String, dynamic>)['status'], 'completed');
+    print('[$tag] Sesión espectador cerrada');
 
-    // 11) Re-unirse con el código cerrado ahora debe fallar (sesión no activa)
-    final lateJoin = await _postBackend(
-      '/tracking/join',
-      body: {'roomCode': roomCode},
-    );
-    expect(
-      lateJoin.statusCode,
-      400,
-      reason: 'Unirse a una sesión completada debe responder 400',
-    );
-    print('[$tag] Re-join a sesión completada -> 400 (correcto)');
+    final lateJoin2 = await _postBackend('/tracking/join',
+        body: {'roomCode': spectatorRoom});
+    expect(lateJoin2.statusCode, 400,
+        reason: 'Re-join a sesión completada debe ser 400');
+    print('[$tag] Re-join a espectador completado -> 400');
   });
 }
 
-// --- Helpers ---
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 Future<void> _expectBackendActive(String roomCode) async {
   final data = await _getBackend('/tracking/$roomCode');
@@ -242,10 +229,8 @@ Future<void> _waitForGpsFix(FlutterDriver driver) async {
   if (fixed) {
     print('GPS OK: VELOCIDAD transmitida en vivo');
   } else {
-    print(
-      'WARN GPS: sin fix en ${_waitLong.inSeconds}s '
-      '(verifica permisos y señal). El resto del flujo sigue validado.',
-    );
+    print('WARN GPS: sin fix en ${_waitLong.inSeconds}s '
+        '(verifica permisos y señal). El resto del flujo sigue validado.');
   }
 }
 
@@ -264,10 +249,7 @@ Future<Map<String, dynamic>> _getBackend(String path) async {
   fail('GET $_backendBase$path no respondió 200');
 }
 
-Future<http.Response> _postBackend(
-  String path, {
-  Map<String, dynamic>? body,
-}) async {
+Future<http.Response> _postBackend(String path, {Map<String, dynamic>? body}) async {
   return http.post(
     Uri.parse('$_backendBase$path'),
     headers: {

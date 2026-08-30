@@ -23,19 +23,70 @@ class TrackingRunnerScreen extends StatefulWidget {
 
 class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
   final TextEditingController _messageController = TextEditingController();
+  String? _startError;
+  bool _starting = true;
 
   @override
   void initState() {
     super.initState();
-    // Initialize provider and start tracking
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final provider = context.read<TrackingProvider>();
-      provider.startAsRunner(
+      _startTracking();
+    });
+  }
+
+  Future<void> _startTracking() async {
+    setState(() {
+      _starting = true;
+      _startError = null;
+    });
+    final provider = context.read<TrackingProvider>();
+    try {
+      await provider.startAsRunner(
         widget.roomCode,
         widget.goalDistance,
         widget.isRunner,
       );
-    });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _startError = '$e');
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
+  void _retry() {
+    _startTracking();
+  }
+
+  void _backToHub() {
+    Navigator.pop(context);
+  }
+
+  Future<bool> _confirmExit() async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppTheme.surface,
+          title: const Text('Detener el tracking'),
+          content: const Text('¿Salir y detener el seguimiento en vivo?'),
+          actions: [
+            TextButton(
+              key: const ValueKey('runnerExitCancel'),
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Quedarme'),
+            ),
+            TextButton(
+              key: const ValueKey('runnerExitConfirm'),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Salir'),
+            ),
+          ],
+        );
+      },
+    );
+    return result == true;
   }
 
   @override
@@ -53,44 +104,113 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Tracking en Curso'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.stop),
-            tooltip: 'Detener tracking',
-            onPressed: () {
-              context.read<TrackingProvider>().stopTracking();
-              context.read<TrackingProvider>().leaveRoom();
-              Navigator.pop(context);
-            },
-          ),
-          // Botón de Compartir
-          IconButton(
-            icon: const Icon(Icons.share, color: AppTheme.primary),
-            tooltip: 'Compartir código',
-            onPressed: () {
-              final code =
-                  Provider.of<TrackingProvider>(
-                    context,
-                    listen: false,
-                  ).roomCode ??
-                  '';
-              if (code.isNotEmpty) {
-                final shareText =
-                    '¡Sígueme en mi carrera en vivo! Ingresa al código: $code';
-                Share.share(shareText);
-              }
-            },
-          ),
-        ],
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final provider = context.read<TrackingProvider>();
+        final navigator = Navigator.of(context);
+        final exit = await _confirmExit();
+        if (exit && mounted) {
+          provider.stopTracking();
+          provider.leaveRoom();
+          if (mounted) navigator.pop();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Tracking en Curso'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.stop),
+              tooltip: 'Detener tracking',
+              onPressed: () {
+                context.read<TrackingProvider>().stopTracking();
+                context.read<TrackingProvider>().leaveRoom();
+                Navigator.pop(context);
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.share, color: AppTheme.primary),
+              tooltip: 'Compartir código',
+              onPressed: () {
+                final code =
+                    Provider.of<TrackingProvider>(
+                      context,
+                      listen: false,
+                    ).roomCode ??
+                    '';
+                if (code.isNotEmpty) {
+                  final shareText =
+                      '¡Sígueme en mi carrera en vivo! Ingresa al código: $code';
+                  Share.share(shareText);
+                }
+              },
+            ),
+          ],
+        ),
+        body: _buildBody(),
       ),
-      body: Consumer<TrackingProvider>(
-        builder: (context, provider, _) {
-          return _buildRunnerBody(provider);
-        },
-      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_startError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, size: 64, color: AppTheme.error),
+              const SizedBox(height: 16),
+              Text(_startError!, textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70)),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: _retry,
+                child: const Text('Reintentar'),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: _backToHub,
+                child: const Text('Volver al Hub'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_starting) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return Consumer<TrackingProvider>(
+      builder: (context, provider, _) {
+        if (provider.error != null) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.wifi_off, size: 64, color: AppTheme.error),
+                  const SizedBox(height: 16),
+                  Text(provider.error!, textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white70)),
+                  const SizedBox(height: 24),
+                  TextButton(
+                    onPressed: _backToHub,
+                    child: const Text('Volver al Hub'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        return _buildRunnerBody(provider);
+      },
     );
   }
 

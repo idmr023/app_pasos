@@ -184,7 +184,7 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
                   Icon(
                     Icons.live_tv,
                     size: 120,
-                    color: AppTheme.primary.withOpacity(0.5),
+                    color: AppTheme.primary.withValues(alpha: 0.5),
                   ),
                   const SizedBox(height: 32),
                   Text(

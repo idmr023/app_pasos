@@ -22,6 +22,7 @@ class TrackingProvider extends ChangeNotifier {
   bool _isTracking = false;
   bool _isRunner = false;
   String? _error;
+  bool _trackingStopped = false;
 
   // --- Datos de Ubicación y Progreso ---
   double _goalDistance = 5.0;
@@ -39,6 +40,7 @@ class TrackingProvider extends ChangeNotifier {
   bool get isTracking => _isTracking;
   bool get isRunner => _isRunner;
   String? get error => _error;
+  bool get trackingStopped => _trackingStopped;
   double get goalDistance => _goalDistance;
   double get currentDistance => _currentDistance;
   Map<String, dynamic>? get currentRunnerLocation => _currentRunnerLocation;
@@ -64,8 +66,14 @@ class TrackingProvider extends ChangeNotifier {
     _goalDistance = goal;
     _currentDistance = 0;
     _error = null;
+    _trackingStopped = false;
     _messages = [];
     _locations.clear();
+
+    _positionSubscription?.cancel();
+    _positionSubscription = null;
+    _lastPosition = null;
+    _locationService.stopTracking();
 
     try {
       // Inicializar TTS de forma best-effort: un fallo del motor de voz
@@ -155,6 +163,7 @@ class TrackingProvider extends ChangeNotifier {
     _isRunner = false;
     _isTracking = false;
     _error = null;
+    _trackingStopped = false;
     _currentRunnerLocation = null;
     _messages = [];
     _locations.clear();
@@ -239,6 +248,7 @@ class TrackingProvider extends ChangeNotifier {
 
       case 'trackingStopped':
         _isTracking = false;
+        _trackingStopped = true;
         notifyListeners();
         break;
 
@@ -258,7 +268,9 @@ class TrackingProvider extends ChangeNotifier {
         message == '⚡' ||
         message == '👏') {
       final senderName = msg['senderName'] ?? 'Alguien';
-      _ttsService.speakSupportMessage(senderName, message);
+      _ttsService.speakSupportMessage(senderName, message).catchError((e) {
+        debugPrint('[Tracking] TTS error: $e');
+      });
     }
   }
 
@@ -290,6 +302,7 @@ class TrackingProvider extends ChangeNotifier {
     _role = null;
     _roomCode = null;
     _isRunner = false;
+    _trackingStopped = false;
     _currentRunnerLocation = null;
     _messages = [];
     _locations.clear();

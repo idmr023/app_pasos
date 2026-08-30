@@ -16,15 +16,39 @@ class TrackingSpectatorScreen extends StatefulWidget {
 
 class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
   final TextEditingController _messageController = TextEditingController();
+  String? _startError;
+  bool _starting = true;
 
   @override
   void initState() {
     super.initState();
-    // Initialize provider and join as spectator
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final provider = context.read<TrackingProvider>();
-      provider.joinAsSpectator(widget.roomCode);
+      _joinRoom();
     });
+  }
+
+  Future<void> _joinRoom() async {
+    setState(() {
+      _starting = true;
+      _startError = null;
+    });
+    final provider = context.read<TrackingProvider>();
+    try {
+      await provider.joinAsSpectator(widget.roomCode);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _startError = '$e');
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
+  void _retry() {
+    _joinRoom();
+  }
+
+  void _backToHub() {
+    Navigator.pop(context);
   }
 
   @override
@@ -46,21 +70,68 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Sala: ${widget.roomCode}'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.gps_fixed),
-            tooltip: 'Seguir corredor',
-            onPressed: () {
-              // Could toggle auto-follow
-            },
+      ),
+      body: _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_startError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, size: 64, color: AppTheme.error),
+              const SizedBox(height: 16),
+              Text(_startError!, textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70)),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: _retry,
+                child: const Text('Reintentar'),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: _backToHub,
+                child: const Text('Volver al Hub'),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: Consumer<TrackingProvider>(
-        builder: (context, provider, _) {
-          return _buildSpectatorBody(provider);
-        },
-      ),
+        ),
+      );
+    }
+
+    if (_starting) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return Consumer<TrackingProvider>(
+      builder: (context, provider, _) {
+        if (provider.error != null) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.wifi_off, size: 64, color: AppTheme.error),
+                  const SizedBox(height: 16),
+                  Text(provider.error!, textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white70)),
+                  const SizedBox(height: 24),
+                  TextButton(
+                    onPressed: _backToHub,
+                    child: const Text('Volver al Hub'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        return _buildSpectatorBody(provider);
+      },
     );
   }
 
@@ -70,11 +141,50 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
 
     return Stack(
       children: [
+        if (provider.trackingStopped)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Material(
+              color: AppTheme.error,
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    children: const [
+                      Icon(Icons.flag, color: Colors.white, size: 20),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'El corredor ha detenido el tracking',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
         // Map area with OpenStreetMap using flutter_map would go here
         // For now, a placeholder
-        Center(
-          child:
-              currentLoc != null
+        Align(
+          alignment: Alignment.topCenter,
+          heightFactor: provider.trackingStopped ? 0.4 : null,
+          child: Padding(
+            padding: EdgeInsets.only(
+              top: provider.trackingStopped ? 60 : 0,
+            ),
+            child: currentLoc != null
                   ? Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -95,6 +205,7 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
                     'Esperando datos del corredor...',
                     style: TextStyle(color: Colors.white70, fontSize: 16),
                   ),
+        ),
         ),
 
         // Route polyline (accumulated locations)

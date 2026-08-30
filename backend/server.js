@@ -110,6 +110,8 @@ app.use((err, req, res, next) => {
 });
 
 // --- Configuración de Socket.IO ---
+const runnerTimers = {};
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -139,6 +141,15 @@ io.use(async (socket, next) => {
     socket.user = user;
     socket.userId = user._id;
     socket.roomCode = roomCode?.toUpperCase();
+    socket.isRunner = socket.handshake.query?.isRunner === 'true';
+
+    if (socket.isRunner) {
+      const timerKey = `${socket.roomCode}:${socket.userId}`;
+      if (runnerTimers[timerKey]) {
+        clearTimeout(runnerTimers[timerKey]);
+        delete runnerTimers[timerKey];
+      }
+    }
 
     next();
   } catch (err) {
@@ -280,13 +291,33 @@ io.on('connection', (socket) => {
   });
 
   // Evento: Disconnect
-  socket.on('disconnect', () => {
+  socket.on('disconnect', async () => {
     console.log(`User ${userName} disconnected from room ${socket.roomCode}`);
     socket.to(socket.roomCode).emit('userLeft', {
       userId: socket.userId,
       name: userName,
       message: `${userName} ha dejado la sala`,
     });
+
+    if (socket.isRunner) {
+      const timerKey = `${socket.roomCode}:${socket.userId}`;
+      runnerTimers[timerKey] = setTimeout(async () => {
+        delete runnerTimers[timerKey];
+        try {
+          const session = await TrackingSession.findOne({ code: socket.roomCode });
+          if (session && session.status === 'active') {
+            session.status = 'completed';
+            session.endedAt = new Date();
+            await session.save();
+            io.to(socket.roomCode).emit('trackingStopped', {
+              message: 'El corredor se ha desconectado',
+            });
+          }
+        } catch (err) {
+          console.error('Error en runner disconnect timeout:', err);
+        }
+      }, 30000);
+    }
   });
 });
 
