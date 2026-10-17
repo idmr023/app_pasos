@@ -13,7 +13,7 @@ import '../services/tts_service.dart';
 
 enum TrackingRole { runner, spectator }
 
-class TrackingProvider extends ChangeNotifier {
+class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
   final WebSocketService _wsService = WebSocketService();
   final LocationService _locationService = LocationService();
   final TtsService _ttsService = TtsService();
@@ -45,6 +45,10 @@ class TrackingProvider extends ChangeNotifier {
   // --- Stats finales (emitidas por el backend al detener el tracking) ---
   Map<String, dynamic>? _finalStats;
 
+  TrackingProvider() {
+    WidgetsBinding.instance.addObserver(this);
+  }
+
   // --- Getters ---
   TrackingRole? get role => _role;
   String? get roomCode => _roomCode;
@@ -64,12 +68,13 @@ class TrackingProvider extends ChangeNotifier {
   /// Puntos del recorrido como LatLng para la polyline del mapa.
   List<LatLng> get routePoints {
     return _locations
-        .where((p) =>
-            p['latitude'] is num && p['longitude'] is num)
-        .map((p) => LatLng(
-              (p['latitude'] as num).toDouble(),
-              (p['longitude'] as num).toDouble(),
-            ))
+        .where((p) => p['latitude'] is num && p['longitude'] is num)
+        .map(
+          (p) => LatLng(
+            (p['latitude'] as num).toDouble(),
+            (p['longitude'] as num).toDouble(),
+          ),
+        )
         .toList();
   }
 
@@ -77,6 +82,32 @@ class TrackingProvider extends ChangeNotifier {
   Future<void> init() async {
     await _ttsService.init();
     await _locationService.init();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        _roomCode != null &&
+        !_trackingStopped &&
+        !_wsService.isConnected) {
+      _reconnectAfterResume();
+    }
+  }
+
+  Future<void> _reconnectAfterResume() async {
+    try {
+      await _wsService.reconnect();
+      _isConnected = true;
+      await Future.wait([_loadRouteHistory(), _loadMessageHistory()]);
+      _error = null;
+      notifyListeners();
+    } catch (e) {
+      _isConnected = false;
+      _error =
+          'No se pudo reconectar al tracking. Revisa tu conexión e inténtalo de nuevo.';
+      debugPrint('[Tracking] Error reconectando al volver a la app: $e');
+      notifyListeners();
+    }
   }
 
   // --- Runner ---
@@ -167,8 +198,11 @@ class TrackingProvider extends ChangeNotifier {
         position.latitude,
         position.longitude,
       );
-      // Ignorar saltos de ruido GPS menores al filtro
-      if (deltaMeters >= 1.5) {
+      // Ignorar saltos de ruido GPS: solo contar movimientos reales
+      // (evita sumar km cuando el dispositivo está quieto).
+      if (deltaMeters >= 5.0 &&
+          position.accuracy <= 25 &&
+          (position.speed <= 0 || position.speed >= 0.3)) {
         _currentDistance += deltaMeters / 1000.0;
       }
     }
@@ -232,6 +266,7 @@ class TrackingProvider extends ChangeNotifier {
       // Cargar el recorrido ya registrado para que el espectador que se
       // une tarde vea el mapa completo (best-effort).
       _loadRouteHistory();
+      _loadMessageHistory();
       // Si la carrera finalizó en la ventana entre validación y socket,
       // marcarla como completada en lugar de esperar eternamente.
       _checkSessionStatus();
@@ -245,7 +280,10 @@ class TrackingProvider extends ChangeNotifier {
 
   /// Espectador invitado (sin cuenta): se une con un nombre y ve el recorrido
   /// en vivo + chat. No requiere token.
-  Future<void> joinAsGuest(String roomCode, {String guestName = 'Invitado'}) async {
+  Future<void> joinAsGuest(
+    String roomCode, {
+    String guestName = 'Invitado',
+  }) async {
     _role = TrackingRole.spectator;
     _roomCode = roomCode;
     _isRunner = false;
@@ -272,6 +310,7 @@ class TrackingProvider extends ChangeNotifier {
       _isConnected = true;
       notifyListeners();
       _loadRouteHistory();
+      _loadMessageHistory();
       _checkSessionStatus();
     } catch (e) {
       _error = '$e';
@@ -303,7 +342,8 @@ class TrackingProvider extends ChangeNotifier {
             // recent=true: los puntos más recientes, para que un espectador
             // que se une tarde vea el tramo actual y no solo el inicio.
             Uri.parse(
-                '${ApiConfig.baseUrl}/tracking/$_roomCode/history?recent=true&limit=1000'),
+              '${ApiConfig.baseUrl}/tracking/$_roomCode/history?recent=true&limit=1000',
+            ),
             headers: headers,
           )
           .timeout(const Duration(seconds: 8));
@@ -390,6 +430,63 @@ class TrackingProvider extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('[Tracking] No se pudo verificar estado de sesión: $e');
+    }
+  }
+
+  Future<void> _loadMessageHistory() async {
+    try {
+      final storage = const FlutterSecureStorage();
+      final token = await storage.read(key: 'auth_token');
+      if (_roomCode == null) return;
+
+      final headers = <String, String>{};
+      if (token != null) headers['Authorization'] = 'Bearer $token';
+      final response = await http
+          .get(
+            Uri.parse(
+              '${ApiConfig.baseUrl}/tracking/$_roomCode/messages?limit=100',
+            ),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 8));
+
+      if (response.statusCode != 200) return;
+      final data = json.decode(response.body);
+      final messages = data['messages'];
+      if (messages is! List) return;
+
+      _messages =
+          messages
+              .whereType<Map>()
+              .map(
+                (message) => {
+                  'message': message['message'],
+                  'senderName':
+                      message['senderName'] ??
+                      (message['sender'] is Map
+                          ? message['sender']['displayName']
+                          : 'Alguien'),
+                  'senderAvatar':
+                      message['senderAvatar'] ??
+                      (message['sender'] is Map
+                          ? message['sender']['avatar']
+                          : null),
+                  'senderId':
+                      message['senderId'] ??
+                      (message['sender'] is Map
+                          ? message['sender']['_id']
+                          : null),
+                  'senderType': message['senderType'],
+                  'timestamp': message['timestamp'],
+                },
+              )
+              .toList();
+      if (_messages.length > 50) {
+        _messages = _messages.sublist(_messages.length - 50);
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[Tracking] No se pudo cargar historial de chat: $e');
     }
   }
 
@@ -484,10 +581,17 @@ class TrackingProvider extends ChangeNotifier {
   }
 
   // --- Acciones ---
-  void sendMessage(String message) {
+  Future<void> sendMessage(String message) async {
     final trimmed = message.trim();
     if (trimmed.isEmpty) return;
-    _wsService.sendChatMessage(trimmed);
+    if (!_wsService.isConnected) {
+      await _reconnectAfterResume();
+    }
+    if (!_wsService.sendChatMessage(trimmed)) {
+      _error =
+          'El chat no está conectado. Espera un momento y vuelve a intentarlo.';
+      notifyListeners();
+    }
   }
 
   void stopTracking() {
@@ -528,6 +632,7 @@ class TrackingProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _socketSubscription?.cancel();
     _positionSubscription?.cancel();
     _timer?.cancel();

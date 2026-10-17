@@ -32,7 +32,13 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<void> sendMessage(String text) async {
-    if (_service == null || text.trim().isEmpty) return;
+    if (text.trim().isEmpty) return;
+    if (_service == null) {
+      _error =
+          'La sesión no está lista. Vuelve a entrar a tu cuenta e inténtalo de nuevo.';
+      notifyListeners();
+      return;
+    }
 
     final userMsg = ChatMessage(role: 'user', content: text.trim());
     _messages.add(userMsg);
@@ -42,10 +48,11 @@ class ChatProvider extends ChangeNotifier {
 
     try {
       final data = await _service!.sendMessage(text.trim());
-      final reply = ChatMessage(
-        role: 'assistant',
-        content: data['reply'] as String,
-      );
+      final replyText = data['reply'];
+      if (replyText is! String || replyText.trim().isEmpty) {
+        throw Exception('El servidor no devolvió una respuesta válida.');
+      }
+      final reply = ChatMessage(role: 'assistant', content: replyText);
       _messages.add(reply);
     } catch (e) {
       _error = e.toString().replaceFirst('Exception: ', '');

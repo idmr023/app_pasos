@@ -16,6 +16,9 @@ class WebSocketService {
   io_client.Socket? _socket;
   bool _isConnected = false;
   final _storage = const FlutterSecureStorage();
+  String? _roomCode;
+  bool _isRunner = false;
+  String? _guestName;
 
   bool get isConnected => _isConnected;
 
@@ -32,6 +35,9 @@ class WebSocketService {
     String? guestName,
   }) async {
     disconnect();
+    _roomCode = roomCode;
+    _isRunner = isRunner;
+    _guestName = guestName;
 
     final token = await _storage.read(key: 'auth_token');
     final isGuest = guestName != null;
@@ -48,6 +54,8 @@ class WebSocketService {
 
     final optionBuilder = io_client.OptionBuilder()
         .setTransports(['websocket'])
+        .setReconnectionAttempts(10)
+        .setReconnectionDelay(1000)
         .disableAutoConnect()
         .setQuery({
           'roomCode': roomCode,
@@ -119,9 +127,10 @@ class WebSocketService {
     _socket!.emit('locationUpdate', data);
   }
 
-  void sendChatMessage(String message) {
-    if (!_isConnected || _socket == null) return;
+  bool sendChatMessage(String message) {
+    if (!_isConnected || _socket == null) return false;
     _socket!.emit('chatMessage', {'message': message});
+    return true;
   }
 
   void sendStopTracking() {
@@ -133,5 +142,15 @@ class WebSocketService {
     _socket?.dispose();
     _socket = null;
     _isConnected = false;
+  }
+
+  Future<void> reconnect() async {
+    final roomCode = _roomCode;
+    if (roomCode == null || _isConnected) return;
+    await connect(
+      roomCode: roomCode,
+      isRunner: _isRunner,
+      guestName: _guestName,
+    );
   }
 }

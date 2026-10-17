@@ -42,6 +42,16 @@ const allowedOrigins = (process.env.CORS_ORIGINS || '')
 
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", 'https://unpkg.com', 'https://cdn.socket.io'],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://unpkg.com'],
+      imgSrc: ["'self'", 'data:', 'https://*.tile.openstreetmap.org', 'https://unpkg.com'],
+      connectSrc: ["'self'", 'https:', 'wss:', 'ws:'],
+      fontSrc: ["'self'", 'https://unpkg.com', 'data:'],
+    },
+  },
 }));
 app.use(cors(allowedOrigins.length > 0
   ? { origin: allowedOrigins }

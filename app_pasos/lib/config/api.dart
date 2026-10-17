@@ -5,8 +5,8 @@ class ApiConfig {
   static String get baseUrl {
     const defined = String.fromEnvironment('BACKEND_URL');
     if (defined.isNotEmpty) return defined;
-    if (kIsWeb) return 'http://localhost:3000/api';
-    if (Platform.isAndroid) return 'https://app-pasos.onrender.com/api';
+    if (kIsWeb) return 'https://app-pasos-za8s.onrender.com/api';
+    if (Platform.isAndroid) return 'https://app-pasos-za8s.onrender.com/api';
     return 'http://localhost:3000/api';
   }
 
