@@ -126,8 +126,9 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
 
     // 4) Resumen final: stats del server si están; si no, calculadas locally
     final elapsedSec = localElapsed.inSeconds;
+    final serverDistance = (serverStats?['totalDistance'] as num?)?.toDouble();
     var distanceKm =
-        ((serverStats?['totalDistance'] as num?) ?? localDistance).toDouble();
+        (serverDistance != null && serverDistance > 0) ? serverDistance : localDistance;
     var avgPace = (serverStats?['avgPace'] as num?)?.toDouble() ?? 0;
     var avgSpeed = (serverStats?['avgSpeed'] as num?)?.toDouble() ?? 0;
     if (avgSpeed <= 0 && distanceKm > 0 && elapsedSec > 0) {
