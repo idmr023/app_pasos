@@ -15,7 +15,7 @@ docs/            → Documentación para el agente (ARCHITECTURE, NAVIGATION, GY
 BottomNavigationBar con 5 tabs (IndexedStack, todos vivos en memoria):
 - **Pasos** 🏃 — HomeScreen: contador de pasos, retos activos/finalizados, crear/unirse a retos
 - **Gimnasio** 💪 — GymScreen: racha semanal, rutinas, ejercicios, flujo 3-pasos nueva rutina
-- **Tracking** 📡 — LiveHubScreen: carreras en vivo con Socket.IO (corredor comparte GPS en tiempo real, espectadores se unen con código de 6 chars, chat con reacciones + TTS)
+- **Tracking** 📡 — LiveHubScreen: carreras en vivo con Socket.IO (corredor comparte GPS en tiempo real, espectadores se unen con código de 6 chars, chat con reacciones + TTS). Km persistidos en backend (`finalizeSession` calcula totalDistance/avgSpeed/maxSpeed/avgPace al cerrar; cierre determinista vía `POST /tracking/:roomCode/close` con fallback al timer de 30s). Al salir, el corredor ve resumen con km/tiempo/ritmo + compartir. Sección "Mis carreras" en el hub (`GET /tracking/sessions`). Espectador ve mapa OSM en vivo (flutter_map) con polyline del recorrido + banner si la sesión ya finalizó. **Wakelock_plus activo durante el tracking del corredor** (si no, Android pausaría el GPS con la pantalla apagada/bolsillo y los km dejarían de contar). El espectador carga el historial con `?recent=true` para ver el tramo actual en carreras largas
 - **Chat** 🤖 — ChatScreen: Coach IA con Gemini (Google AI), chat funcional con memoria persistente y RAG sobre ejercicios
 - **Menú** ☰ — MenuScreen: Rutas (Strava), Perfil, Retos Finalizados, Ajustes
 
@@ -85,7 +85,7 @@ flutter analyze
 | `/api/xp` | GET xp+level+progress, GET rewards, POST claim, GET weight-rewards |
 | `/api/gym` | GET exercises, CRUD routines, POST workouts, GET streak, GET/POST personal-records |
 | `/api/chat` | POST send message, GET history, DELETE history |
-| `/api/tracking` | POST create (crea sala con código), POST join (valida sala), GET/:roomCode |
+| `/api/tracking` | POST create (crea sala con código), POST join (valida sala), GET sessions (historial del usuario), GET/:roomCode, POST/:roomCode/close, GET/:roomCode/history, GET/:roomCode/messages |
 
 **Tracking en vivo**: usa Socket.IO (no WebSocket crudo). El frontend conecta con `socket_io_client` enviando `auth.token` + query `roomCode`/`isRunner`. Eventos: `locationUpdate`, `chatMessage`, `trackingStopped`, `userJoined/Left`.
 

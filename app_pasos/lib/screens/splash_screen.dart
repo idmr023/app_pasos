@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../config/theme.dart';
 import '../config/api.dart';
 import '../providers/auth_provider.dart';
+import 'tracking/tracking_spectator_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -55,6 +56,37 @@ class _SplashScreenState extends State<SplashScreen>
     await auth.tryAutoLogin();
 
     if (!mounted) return;
+
+    // Enlace público de seguimiento en vivo: /track/CODE o ?code=CODE
+    final uri = Uri.base;
+    String? trackCode;
+    // Soporte para path-based y hash-based routing
+    final candidates = <Uri>[uri];
+    if (uri.fragment.isNotEmpty) {
+      candidates.add(Uri.parse(uri.fragment.startsWith('/') ? uri.fragment : '/${uri.fragment}'));
+    }
+    for (final u in candidates) {
+      if (u.pathSegments.length >= 2 && u.pathSegments[0] == 'track') {
+        trackCode = u.pathSegments[1].toUpperCase();
+        break;
+      }
+      if (u.queryParameters['code'] != null) {
+        trackCode = u.queryParameters['code']!.toUpperCase();
+        break;
+      }
+    }
+    if (trackCode != null && trackCode.length == 6) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TrackingSpectatorScreen(
+            roomCode: trackCode!,
+            guestName: 'Invitado',
+          ),
+        ),
+      );
+      return;
+    }
 
     if (auth.isAuthenticated) {
       Navigator.pushReplacementNamed(context, '/main');

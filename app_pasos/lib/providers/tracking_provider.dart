@@ -1,6 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
+import '../config/api.dart';
 import '../services/websocket_service.dart';
 import '../services/location_service.dart';
 import '../services/tts_service.dart';
@@ -24,14 +30,20 @@ class TrackingProvider extends ChangeNotifier {
   String? _error;
   bool _trackingStopped = false;
 
-  // --- Datos de Ubicación y Progreso ---
+  // --- Datos de Ubicación, Progreso y Cronómetro ---
   double _goalDistance = 5.0;
   double _currentDistance = 0.0; // km acumulados
   Map<String, dynamic>? _currentRunnerLocation;
+  DateTime? _startTime;
+  Duration _elapsedTime = Duration.zero;
+  Timer? _timer;
 
   // --- Historial ---
   List<Map<String, dynamic>> _messages = [];
   final List<Map<String, dynamic>> _locations = [];
+
+  // --- Stats finales (emitidas por el backend al detener el tracking) ---
+  Map<String, dynamic>? _finalStats;
 
   // --- Getters ---
   TrackingRole? get role => _role;
@@ -43,9 +55,23 @@ class TrackingProvider extends ChangeNotifier {
   bool get trackingStopped => _trackingStopped;
   double get goalDistance => _goalDistance;
   double get currentDistance => _currentDistance;
+  Duration get elapsedTime => _elapsedTime;
   Map<String, dynamic>? get currentRunnerLocation => _currentRunnerLocation;
   List<Map<String, dynamic>> get messages => _messages;
   List<Map<String, dynamic>> get locations => _locations;
+  Map<String, dynamic>? get finalStats => _finalStats;
+
+  /// Puntos del recorrido como LatLng para la polyline del mapa.
+  List<LatLng> get routePoints {
+    return _locations
+        .where((p) =>
+            p['latitude'] is num && p['longitude'] is num)
+        .map((p) => LatLng(
+              (p['latitude'] as num).toDouble(),
+              (p['longitude'] as num).toDouble(),
+            ))
+        .toList();
+  }
 
   // --- Init ---
   Future<void> init() async {
@@ -65,10 +91,20 @@ class TrackingProvider extends ChangeNotifier {
     _isTracking = true;
     _goalDistance = goal;
     _currentDistance = 0;
+    _startTime = DateTime.now();
+    _elapsedTime = Duration.zero;
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_isTracking && _startTime != null) {
+        _elapsedTime = DateTime.now().difference(_startTime!);
+        notifyListeners();
+      }
+    });
     _error = null;
     _trackingStopped = false;
     _messages = [];
     _locations.clear();
+    _finalStats = null;
 
     _positionSubscription?.cancel();
     _positionSubscription = null;
@@ -84,10 +120,13 @@ class TrackingProvider extends ChangeNotifier {
         debugPrint('[Tracking] TTS no disponible: $ttsError');
       }
 
-      // Conectar socket como corredor
+      // Suscribirse a eventos ANTES de conectar para no perder el evento
+      // 'connected' emitido por el backend al unirse a la sala.
+      _listenToSocket();
+
+      // Conectar socket como corredor (espera la conexión real)
       await _wsService.connect(roomCode: roomCode, isRunner: true);
       _isConnected = true;
-      _listenToSocket();
 
       // Iniciar GPS y reenviar posiciones por socket
       _positionSubscription = _locationService.startTracking().listen(
@@ -97,6 +136,16 @@ class TrackingProvider extends ChangeNotifier {
           notifyListeners();
         },
       );
+
+      // Mantener la pantalla activa mientras se graba: si el corredor pone
+      // el celular en el bolsillo, Android pausaría el stream GPS y los km
+      // dejarían de contar. Best-effort: un fallo del wakelock no detiene
+      // el tracking.
+      try {
+        await WakelockPlus.enable();
+      } catch (e) {
+        debugPrint('[Tracking] Wakelock no disponible: $e');
+      }
 
       notifyListeners();
     } catch (e) {
@@ -119,7 +168,7 @@ class TrackingProvider extends ChangeNotifier {
         position.longitude,
       );
       // Ignorar saltos de ruido GPS menores al filtro
-      if (deltaMeters >= 3) {
+      if (deltaMeters >= 1.5) {
         _currentDistance += deltaMeters / 1000.0;
       }
     }
@@ -167,6 +216,7 @@ class TrackingProvider extends ChangeNotifier {
     _currentRunnerLocation = null;
     _messages = [];
     _locations.clear();
+    _finalStats = null;
 
     // Cancelar cualquier rastreo GPS previo (p.ej. el del corredor)
     _positionSubscription?.cancel();
@@ -175,10 +225,54 @@ class TrackingProvider extends ChangeNotifier {
     _locationService.stopTracking();
 
     try {
+      _listenToSocket();
       await _wsService.connect(roomCode: roomCode, isRunner: false);
       _isConnected = true;
-      _listenToSocket();
       notifyListeners();
+      // Cargar el recorrido ya registrado para que el espectador que se
+      // une tarde vea el mapa completo (best-effort).
+      _loadRouteHistory();
+      // Si la carrera finalizó en la ventana entre validación y socket,
+      // marcarla como completada en lugar de esperar eternamente.
+      _checkSessionStatus();
+    } catch (e) {
+      _error = '$e';
+      _isConnected = false;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  /// Espectador invitado (sin cuenta): se une con un nombre y ve el recorrido
+  /// en vivo + chat. No requiere token.
+  Future<void> joinAsGuest(String roomCode, {String guestName = 'Invitado'}) async {
+    _role = TrackingRole.spectator;
+    _roomCode = roomCode;
+    _isRunner = false;
+    _isTracking = false;
+    _error = null;
+    _trackingStopped = false;
+    _currentRunnerLocation = null;
+    _messages = [];
+    _locations.clear();
+    _finalStats = null;
+
+    _positionSubscription?.cancel();
+    _positionSubscription = null;
+    _lastPosition = null;
+    _locationService.stopTracking();
+
+    try {
+      _listenToSocket();
+      await _wsService.connect(
+        roomCode: roomCode,
+        isRunner: false,
+        guestName: guestName,
+      );
+      _isConnected = true;
+      notifyListeners();
+      _loadRouteHistory();
+      _checkSessionStatus();
     } catch (e) {
       _error = '$e';
       _isConnected = false;
@@ -191,6 +285,112 @@ class TrackingProvider extends ChangeNotifier {
   void _listenToSocket() {
     _socketSubscription?.cancel();
     _socketSubscription = _wsService.events.listen(_handleSocketEvent);
+  }
+
+  /// Best-effort: carga los puntos ya registrados en el servidor para que
+  /// un espectador que se une tarde vea el recorrido completo en el mapa.
+  Future<void> _loadRouteHistory() async {
+    try {
+      final storage = const FlutterSecureStorage();
+      final token = await storage.read(key: 'auth_token');
+      if (_roomCode == null) return;
+
+      final headers = <String, String>{};
+      if (token != null) headers['Authorization'] = 'Bearer $token';
+
+      final response = await http
+          .get(
+            // recent=true: los puntos más recientes, para que un espectador
+            // que se une tarde vea el tramo actual y no solo el inicio.
+            Uri.parse(
+                '${ApiConfig.baseUrl}/tracking/$_roomCode/history?recent=true&limit=1000'),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 8));
+
+      if (response.statusCode != 200) return;
+      final data = json.decode(response.body);
+      final locations = data['locations'];
+      if (locations is! List) return;
+
+      _locations.clear();
+      for (final loc in locations) {
+        if (loc is Map && loc['latitude'] is num && loc['longitude'] is num) {
+          _locations.add({
+            'latitude': loc['latitude'],
+            'longitude': loc['longitude'],
+            'distance': loc['distance'],
+            'speed': loc['speed'],
+            'pace': loc['pace'],
+            'timestamp': loc['timestamp'],
+          });
+        }
+      }
+      // La distancia acumulada más reciente del historial
+      final lastWithDistance = locations.lastWhere(
+        (l) => l is Map && l['distance'] is num && (l['distance'] as num) > 0,
+        orElse: () => null,
+      );
+      if (lastWithDistance is Map && lastWithDistance['distance'] is num) {
+        _currentDistance = (lastWithDistance['distance'] as num).toDouble();
+      }
+      // Setear la ubicación "actual" con el último punto para que el overlay
+      // muestre datos reales en vez de "Esperando datos del corredor...".
+      if (_locations.isNotEmpty) {
+        final last = _locations.last;
+        _currentRunnerLocation = {
+          'latitude': last['latitude'],
+          'longitude': last['longitude'],
+          'speed': last['speed'],
+          'pace': last['pace'],
+          'distance': last['distance'],
+        };
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[Tracking] No se pudo cargar historial: $e');
+    }
+  }
+
+  /// Verifica el estado de la sesión tras unirse como espectador.
+  /// Si la carrera ya finalizó (ventana de carrera entre la validación del
+  /// hub y la conexión del socket), muestra el banner de finalizada en
+  /// lugar de esperar posiciones que ya no llegarán.
+  Future<void> _checkSessionStatus() async {
+    try {
+      final storage = const FlutterSecureStorage();
+      final token = await storage.read(key: 'auth_token');
+      if (_roomCode == null) return;
+
+      final headers = <String, String>{};
+      if (token != null) headers['Authorization'] = 'Bearer $token';
+
+      final response = await http
+          .get(
+            Uri.parse('${ApiConfig.baseUrl}/tracking/$_roomCode'),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 8));
+
+      if (response.statusCode != 200) return;
+      final data = json.decode(response.body);
+      final session = data['session'];
+      if (session is Map && session['status'] != null) {
+        if (session['status'] != 'active') {
+          _trackingStopped = true;
+          _finalStats = {
+            'totalDistance': session['totalDistance'],
+            'avgSpeed': session['avgSpeed'],
+            'maxSpeed': session['maxSpeed'],
+            'avgPace': session['avgPace'],
+            'pointCount': session['pointCount'],
+          };
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      debugPrint('[Tracking] No se pudo verificar estado de sesión: $e');
+    }
   }
 
   void _handleSocketEvent(Map<String, dynamic> event) {
@@ -249,6 +449,15 @@ class TrackingProvider extends ChangeNotifier {
       case 'trackingStopped':
         _isTracking = false;
         _trackingStopped = true;
+        if (data is Map) {
+          _finalStats = {
+            'totalDistance': data['totalDistance'],
+            'avgSpeed': data['avgSpeed'],
+            'maxSpeed': data['maxSpeed'],
+            'avgPace': data['avgPace'],
+            'pointCount': data['pointCount'],
+          };
+        }
         notifyListeners();
         break;
 
@@ -282,15 +491,17 @@ class TrackingProvider extends ChangeNotifier {
   }
 
   void stopTracking() {
-    if (_role == TrackingRole.runner) {
-      _wsService.sendStopTracking();
-    }
     _isTracking = false;
+    _timer?.cancel();
+    _timer = null;
     _positionSubscription?.cancel();
     _positionSubscription = null;
     _lastPosition = null;
     _locationService.stopTracking();
-    notifyListeners();
+    WakelockPlus.disable().catchError((Object e) {
+      debugPrint('[Tracking] Error liberando wakelock: $e');
+      return null;
+    });
   }
 
   void leaveRoom() {
@@ -303,10 +514,15 @@ class TrackingProvider extends ChangeNotifier {
     _roomCode = null;
     _isRunner = false;
     _trackingStopped = false;
+    _finalStats = null;
     _currentRunnerLocation = null;
     _messages = [];
     _locations.clear();
     _currentDistance = 0;
+    _startTime = null;
+    _elapsedTime = Duration.zero;
+    _timer?.cancel();
+    _timer = null;
     notifyListeners();
   }
 
@@ -314,8 +530,13 @@ class TrackingProvider extends ChangeNotifier {
   void dispose() {
     _socketSubscription?.cancel();
     _positionSubscription?.cancel();
+    _timer?.cancel();
     _wsService.disconnect();
     _locationService.stopTracking();
+    WakelockPlus.disable().catchError((Object e) {
+      debugPrint('[Tracking] Error liberando wakelock: $e');
+      return null;
+    });
     super.dispose();
   }
 }

@@ -17,12 +17,60 @@ class LiveHubScreen extends StatefulWidget {
 class _LiveHubScreenState extends State<LiveHubScreen> {
   final _storage = const FlutterSecureStorage();
   bool _isLoading = false;
+  List<Map<String, dynamic>> _pastSessions = [];
+  bool _loadingSessions = false;
 
-  Future<String?> _createTrackingSession() async {
+  @override
+  void initState() {
+    super.initState();
+    _loadPastSessions();
+  }
+
+  Future<void> _loadPastSessions() async {
+    if (_loadingSessions) return;
+    setState(() => _loadingSessions = true);
+    try {
+      final token = await _storage.read(key: 'auth_token');
+      if (token == null) return;
+      final response = await http
+          .get(
+            Uri.parse('${ApiConfig.baseUrl}/tracking/sessions'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(ApiConfig.timeout);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final sessions = data['sessions'];
+        if (sessions is List && mounted) {
+          setState(() {
+            _pastSessions = sessions
+                .map((s) => Map<String, dynamic>.from(s as Map))
+                .toList();
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('[Tracking] Error cargando historial: $e');
+    } finally {
+      if (mounted) setState(() => _loadingSessions = false);
+    }
+  }
+
+  String _formatSessionDate(dynamic isoDate) {
+    try {
+      final date = DateTime.parse(isoDate.toString()).toLocal();
+      String two(int n) => n.toString().padLeft(2, '0');
+      return '${two(date.day)}/${two(date.month)} ${two(date.hour)}:${two(date.minute)}';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Devuelve el roomCode creado, o lanza con un mensaje apto para el usuario.
+  Future<String> _createTrackingSession() async {
     final token = await _storage.read(key: 'auth_token');
     if (token == null) {
-      debugPrint('[Tracking] No auth_token en storage');
-      return null;
+      throw Exception('Sesión no válida. Cierra sesión y vuelve a entrar.');
     }
 
     final response = await http
@@ -37,12 +85,32 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
         .timeout(ApiConfig.timeout);
 
     debugPrint('[Tracking] POST /tracking/create → ${response.statusCode}');
+    debugPrint('[Tracking] Body: ${response.body}');
+
     if (response.statusCode == 201) {
       final data = json.decode(response.body);
-      return data['roomCode'] as String?;
+      final code = data['roomCode'] as String?;
+      if (code != null) return code;
+      throw Exception('Respuesta del servidor inválida');
     }
-    debugPrint('[Tracking] Error body: ${response.body}');
-    return null;
+
+    String serverMsg = '';
+    try {
+      serverMsg = (json.decode(response.body)['error'] ?? '').toString();
+    } catch (_) {}
+
+    if (response.statusCode == 401) {
+      throw Exception(
+        serverMsg.isNotEmpty
+            ? '$serverMsg. Cierra sesión y vuelve a entrar.'
+            : 'Sesión expirada. Cierra sesión y vuelve a entrar.',
+      );
+    }
+    throw Exception(
+      serverMsg.isNotEmpty
+          ? 'El servidor rechazó la sala: $serverMsg'
+          : 'Error del servidor (${response.statusCode})',
+    );
   }
 
   Future<bool> _validateRoomCode(String code) async {
@@ -76,16 +144,19 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
     // y arrancar la grabación de inmediato (sin elegir meta previa).
     setState(() => _isLoading = true);
     String? roomCode;
+    String? errorMsg;
     try {
       roomCode = await _createTrackingSession();
+    } on Exception catch (e) {
+      errorMsg = e.toString().replaceFirst('Exception: ', '');
     } catch (e) {
-      _showError('No se pudo conectar con el servidor');
+      errorMsg = 'No se pudo conectar con el servidor. ¿Está el backend activo?';
     }
     if (!mounted) return;
     setState(() => _isLoading = false);
 
     if (roomCode == null) {
-      _showError('No se pudo crear la sala de tracking');
+      _showError(errorMsg ?? 'No se pudo crear la sala de tracking');
       return;
     }
 
@@ -99,7 +170,7 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
               goalDistance: 0, // Sin meta: se muestra la distancia en vivo
             ),
       ),
-    );
+    ).then((_) => _loadPastSessions());
   }
 
   Future<void> _joinAsSpectator() async {
@@ -248,6 +319,105 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
                     ),
                     textAlign: TextAlign.center,
                   ),
+                  // --- Historial de carreras del usuario ---
+                  if (_loadingSessions && _pastSessions.isEmpty) ...[
+                    const SizedBox(height: 32),
+                    const CircularProgressIndicator(),
+                  ],
+                  if (_pastSessions.isNotEmpty) ...[
+                    const SizedBox(height: 32),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Mis carreras',
+                        style: AppTheme.titleMedium.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ..._pastSessions.take(10).map((session) {
+                      final distance =
+                          (session['totalDistance'] as num?)?.toDouble() ?? 0;
+                      final status = session['status'] ?? '';
+                      final endedAt = session['endedAt'];
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.surface,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: status == 'active'
+                                ? AppTheme.primary.withValues(alpha: 0.4)
+                                : Colors.white.withValues(alpha: 0.06),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              status == 'active'
+                                  ? Icons.live_tv
+                                  : Icons.check_circle_outline,
+                              size: 20,
+                              color: status == 'active'
+                                  ? AppTheme.primary
+                                  : AppTheme.grey,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    session['title'] ?? 'Carrera en Vivo',
+                                    style: AppTheme.bodyMedium.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Text(
+                                    _formatSessionDate(
+                                      endedAt ?? session['startedAt'],
+                                    ),
+                                    style: AppTheme.bodySmall.copyWith(
+                                      color: AppTheme.darkGrey,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  '${distance.toStringAsFixed(2)} km',
+                                  style: AppTheme.bodyMedium.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: AppTheme.primary,
+                                  ),
+                                ),
+                                Text(
+                                  status == 'active'
+                                      ? 'En curso'
+                                      : 'Finalizada',
+                                  style: AppTheme.bodySmall.copyWith(
+                                    color: status == 'active'
+                                        ? AppTheme.primary
+                                        : AppTheme.darkGrey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
                 ],
               ),
             ),

@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:app_pasos/config/theme.dart';
 import 'package:app_pasos/providers/tracking_provider.dart';
 
 class TrackingSpectatorScreen extends StatefulWidget {
   final String roomCode;
+  final String? guestName;
 
-  const TrackingSpectatorScreen({Key? key, required this.roomCode})
-    : super(key: key);
+  const TrackingSpectatorScreen({
+    super.key,
+    required this.roomCode,
+    this.guestName,
+  });
 
   @override
   State<TrackingSpectatorScreen> createState() =>
@@ -16,8 +22,11 @@ class TrackingSpectatorScreen extends StatefulWidget {
 
 class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
   final TextEditingController _messageController = TextEditingController();
+  final MapController _mapController = MapController();
   String? _startError;
   bool _starting = true;
+  bool _followRunner = true;
+  LatLng? _lastCentered;
 
   @override
   void initState() {
@@ -34,7 +43,11 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
     });
     final provider = context.read<TrackingProvider>();
     try {
-      await provider.joinAsSpectator(widget.roomCode);
+      if (widget.guestName != null) {
+        await provider.joinAsGuest(widget.roomCode, guestName: widget.guestName!);
+      } else {
+        await provider.joinAsSpectator(widget.roomCode);
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _startError = '$e');
@@ -63,6 +76,26 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
     if (text.isEmpty) return;
     context.read<TrackingProvider>().sendMessage(text);
     _messageController.clear();
+  }
+
+  void _centerOnRunner(TrackingProvider provider) {
+    if (!_followRunner) return;
+    final loc = provider.currentRunnerLocation;
+    if (loc == null) return;
+    final lat = (loc['latitude'] as num?)?.toDouble();
+    final lng = (loc['longitude'] as num?)?.toDouble();
+    if (lat == null || lng == null) return;
+    final target = LatLng(lat, lng);
+    // Evitar movers el mapa si ya está recientrado en esta posición
+    if (_lastCentered != null &&
+        (_lastCentered!.latitude - target.latitude).abs() < 1e-6 &&
+        (_lastCentered!.longitude - target.longitude).abs() < 1e-6) {
+      return;
+    }
+    _lastCentered = target;
+    _mapController.move(target, _mapController.camera.zoom < 14
+        ? 16
+        : _mapController.camera.zoom);
   }
 
   @override
@@ -137,10 +170,133 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
 
   Widget _buildSpectatorBody(TrackingProvider provider) {
     final currentLoc = provider.currentRunnerLocation;
-    final locations = provider.locations;
+    final routePoints = provider.routePoints;
+
+    // Centrar el mapa en el corredor cuando llega una nueva posición
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _centerOnRunner(provider);
+    });
+
+    final LatLng? runnerLatLng = currentLoc != null &&
+            currentLoc['latitude'] is num &&
+            currentLoc['longitude'] is num
+        ? LatLng(
+            (currentLoc['latitude'] as num).toDouble(),
+            (currentLoc['longitude'] as num).toDouble(),
+          )
+        : (routePoints.isNotEmpty ? routePoints.last : null);
+
+    final speedKmh = ((currentLoc?['speed'] as num?) ?? 0).toDouble() * 3.6;
+    final distanceKm = provider.currentDistance;
+    final pace = (currentLoc?['pace'] as num?)?.toDouble() ?? 0;
 
     return Stack(
       children: [
+        // --- Mapa en vivo (OpenStreetMap, gratis y sin API key) ---
+        Positioned.fill(
+          child: FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: runnerLatLng ?? const LatLng(-12.0464, -77.0428),
+              initialZoom: 15,
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.pinchZoom |
+                    InteractiveFlag.drag |
+                    InteractiveFlag.doubleTapZoom,
+              ),
+              onPositionChanged: (pos, hasGesture) {
+                if (hasGesture) {
+                  // El usuario movió el mapa manualmente: pausar el seguimiento
+                  setState(() => _followRunner = false);
+                }
+              },
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.apppasos.app_pasos',
+                maxZoom: 19,
+              ),
+              if (routePoints.length > 1)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: routePoints,
+                      strokeWidth: 5,
+                      color: AppTheme.primary,
+                    ),
+                  ],
+                ),
+              MarkerLayer(
+                markers: [
+                  if (runnerLatLng != null)
+                    Marker(
+                      point: runnerLatLng,
+                      width: 48,
+                      height: 48,
+                      child: const Icon(
+                        Icons.person_pin_circle,
+                        color: AppTheme.primary,
+                        size: 48,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        // --- Overlay de métricas del corredor ---
+        Positioned(
+          top: provider.trackingStopped ? 60 : 12,
+          left: 12,
+          right: 12,
+          child: Card(
+            color: AppTheme.surface.withValues(alpha: 0.92),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: currentLoc != null
+                  ? Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildStat('Distancia', '${distanceKm.toStringAsFixed(2)} km'),
+                        _buildStat('Velocidad', '${speedKmh.toStringAsFixed(1)} km/h'),
+                        _buildStat(
+                          'Ritmo',
+                          pace > 0 ? '${_formatPace(pace)} /km' : '--',
+                        ),
+                      ],
+                    )
+                  : const Center(
+                      child: Text(
+                        'Esperando datos del corredor...',
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                    ),
+            ),
+          ),
+        ),
+
+        // Botón para reanudar el seguimiento del corredor
+        if (!_followRunner && runnerLatLng != null)
+          Positioned(
+            top: provider.trackingStopped ? 130 : 84,
+            right: 12,
+            child: FloatingActionButton.small(
+              backgroundColor: AppTheme.primary,
+              tooltip: 'Seguir al corredor',
+              onPressed: () {
+                setState(() {
+                  _followRunner = true;
+                  _lastCentered = null;
+                });
+                _centerOnRunner(provider);
+              },
+              child: const Icon(Icons.my_location, color: Colors.white),
+            ),
+          ),
+
+        // Banner: tracking detenido
         if (provider.trackingStopped)
           Positioned(
             top: 0,
@@ -156,13 +312,15 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
                     vertical: 10,
                   ),
                   child: Row(
-                    children: const [
-                      Icon(Icons.flag, color: Colors.white, size: 20),
-                      SizedBox(width: 8),
+                    children: [
+                      const Icon(Icons.flag, color: Colors.white, size: 20),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'El corredor ha detenido el tracking',
-                          style: TextStyle(
+                          provider.finalStats != null
+                              ? 'Carrera finalizada — ${((provider.finalStats!['totalDistance'] as num?) ?? 0).toStringAsFixed(2)} km'
+                              : 'El corredor ha detenido el tracking',
+                          style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
                           ),
@@ -170,55 +328,6 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
                       ),
                     ],
                   ),
-                ),
-              ),
-            ),
-          ),
-
-        // Map area with OpenStreetMap using flutter_map would go here
-        // For now, a placeholder
-        Align(
-          alignment: Alignment.topCenter,
-          heightFactor: provider.trackingStopped ? 0.4 : null,
-          child: Padding(
-            padding: EdgeInsets.only(
-              top: provider.trackingStopped ? 60 : 0,
-            ),
-            child: currentLoc != null
-                  ? Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.person_pin, size: 80, color: AppTheme.primary),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Lat: ${currentLoc['latitude']}, Lng: ${currentLoc['longitude']}',
-                        style: AppTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Velocidad: ${((currentLoc['speed'] ?? 0) * 3.6).toStringAsFixed(1)} km/h',
-                        style: AppTheme.bodySmall,
-                      ),
-                    ],
-                  )
-                  : const Text(
-                    'Esperando datos del corredor...',
-                    style: TextStyle(color: Colors.white70, fontSize: 16),
-                  ),
-        ),
-        ),
-
-        // Route polyline (accumulated locations)
-        if (locations.isNotEmpty)
-          Positioned(
-            top: 100,
-            child: Card(
-              color: AppTheme.surface,
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Text(
-                  'Puntos de ruta: ${locations.length}',
-                  style: AppTheme.bodySmall,
                 ),
               ),
             ),
@@ -318,6 +427,39 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
                 ),
               ],
             ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatPace(double paceMinPerKm) {
+    if (paceMinPerKm <= 0 || !paceMinPerKm.isFinite) return '--';
+    final totalSeconds = (paceMinPerKm * 60).round();
+    final min = totalSeconds ~/ 60;
+    final sec = totalSeconds % 60;
+    return '$min:${sec.toString().padLeft(2, '0')}';
+  }
+
+  Widget _buildStat(String label, String value) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white54,
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5,
           ),
         ),
       ],

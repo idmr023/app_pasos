@@ -12,7 +12,8 @@
 //     4. Chat como corredor: mensaje + eco propio.
 //     5. Backend: sesión activa, history y messages.
 //     6. Back -> diálogo de confirmación -> "Quedarme" (cancela, sigue en sala).
-//     7. Back otra vez -> "Salir" (detiene + cierra sesión) -> LiveHub.
+//     7. Back otra vez -> "Salir" -> resumen "¡Carrera finalizada!" -> "Listo"
+//        (detiene + cierra sesión + POST /close) -> LiveHub.
 //     8. Backend: sesión status=completed; POST /join con código cerrado -> 400.
 //   FASE B - Espectador:
 //     9. Crear sala activa nueva vía backend (sin entrar como corredor).
@@ -117,10 +118,15 @@ void main() {
     await driver.waitFor(find.text('Tracking en Curso'), timeout: _waitShort);
     print('[$tag] Diálogo cancelado: sigue en runner');
 
-    // 9) Back otra vez -> "Salir" (detiene + cierra sesión)
+    // 9) Back otra vez -> "Salir" -> resumen -> "Listo" (detiene + cierra sesión)
     await driver.tap(find.byType('BackButton'));
     await driver.waitFor(find.text('Salir'), timeout: _waitShort);
     await driver.tap(find.text('Salir'));
+    // El cierre en backend es rápido pero puede tardar (Render cold start)
+    await driver.waitFor(find.byValueKey('runnerSummaryDone'),
+        timeout: _waitLong);
+    print('[$tag] Resumen post-carrera visible');
+    await driver.tap(find.byValueKey('runnerSummaryDone'));
     await driver.waitFor(find.text('Live Track & Support'), timeout: _waitShort);
     print('[$tag] Sesión corredor cerrada desde UI');
 

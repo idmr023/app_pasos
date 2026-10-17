@@ -1,21 +1,25 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
+import 'package:app_pasos/config/api.dart';
 import 'package:app_pasos/config/theme.dart';
 import 'package:app_pasos/providers/tracking_provider.dart';
-import 'package:share_plus/share_plus.dart'; // Añadido
+import 'package:share_plus/share_plus.dart';
 
 class TrackingRunnerScreen extends StatefulWidget {
   final String roomCode;
   final bool isRunner;
-  final double goalDistance; // Nueva meta en km
+  final double goalDistance; // Meta en km (0 = sin meta)
 
   const TrackingRunnerScreen({
-    Key? key,
+    super.key,
     required this.roomCode,
-    required this.isRunner, // Enlace explícito con this.isRunner
-    this.goalDistance = 5.0, // Meta por defecto 5km
-  }) : super(key: key);
+    required this.isRunner,
+    this.goalDistance = 5.0,
+  });
 
   @override
   State<TrackingRunnerScreen> createState() => _TrackingRunnerScreenState();
@@ -63,6 +67,7 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
   }
 
   Future<bool> _confirmExit() async {
+    final distanceKm = context.read<TrackingProvider>().currentDistance;
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -70,7 +75,11 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
         return AlertDialog(
           backgroundColor: AppTheme.surface,
           title: const Text('Detener el tracking'),
-          content: const Text('¿Salir y detener el seguimiento en vivo?'),
+          content: Text(
+            '¿Salir y detener el seguimiento en vivo?\n\n'
+            'Se guardarán tus ${distanceKm.toStringAsFixed(2)} km '
+            'y verás el resumen de la carrera.',
+          ),
           actions: [
             TextButton(
               key: const ValueKey('runnerExitCancel'),
@@ -89,10 +98,207 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
     return result == true;
   }
 
+  /// Flujo único de salida (back y botón ⏹): confirma, cierra la sesión
+  /// en el backend (guardado determinista), muestra el resumen y sale.
+  Future<void> _exitFlow() async {
+    final confirmed = await _confirmExit();
+    if (!confirmed || !mounted) return;
+
+    final provider = context.read<TrackingProvider>();
+    final navigator = Navigator.of(context);
+
+    // 1) Detener GPS/socket y capturar stats locales ANTES de cualquier reset
+    provider.stopTracking();
+    final localDistance = provider.currentDistance;
+    final localElapsed = provider.elapsedTime;
+
+    // 2) Cerrar la sesión en el backend (persiste totalDistance/avgSpeed/...)
+    //    Si falla, el fallback es el timer de 30s del servidor al desconectar.
+    Map<String, dynamic>? serverStats;
+    if (!mounted) return;
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
+    _showClosingDialog(); // sin await: se cierra tras la petición
+    serverStats = await _closeSessionOnBackend();
+    rootNavigator.pop(); // cierra el diálogo de "Guardando..."
+
+    // 3) Liberar socket y resetear estado
+    provider.leaveRoom();
+
+    // 4) Resumen final: stats del server si están; si no, calculadas locally
+    final elapsedSec = localElapsed.inSeconds;
+    var distanceKm =
+        ((serverStats?['totalDistance'] as num?) ?? localDistance).toDouble();
+    var avgPace = (serverStats?['avgPace'] as num?)?.toDouble() ?? 0;
+    var avgSpeed = (serverStats?['avgSpeed'] as num?)?.toDouble() ?? 0;
+    if (avgSpeed <= 0 && distanceKm > 0 && elapsedSec > 0) {
+      avgSpeed = distanceKm / (elapsedSec / 3600);
+    }
+    if (avgPace <= 0 && distanceKm > 0 && elapsedSec > 0) {
+      avgPace = (elapsedSec / 60) / distanceKm;
+    }
+
+    if (mounted) {
+      await _showSummaryDialog(
+        distanceKm: distanceKm,
+        elapsed: localElapsed,
+        avgPace: avgPace,
+        avgSpeed: avgSpeed,
+      );
+    }
+
+    // 5) Volver al hub
+    if (mounted) navigator.pop();
+  }
+
+  Future<void> _showClosingDialog() async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => const AlertDialog(
+        backgroundColor: AppTheme.surface,
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Expanded(child: Text('Guardando tu carrera...')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<Map<String, dynamic>?> _closeSessionOnBackend() async {
+    try {
+      final token = await const FlutterSecureStorage().read(key: 'auth_token');
+      if (token == null) return null;
+
+      final response = await http
+          .post(
+            Uri.parse('${ApiConfig.baseUrl}/tracking/${widget.roomCode}/close'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: json.encode({}),
+          )
+          .timeout(const Duration(seconds: 8));
+
+      if (response.statusCode != 200) return null;
+      final data = json.decode(response.body);
+      final session = data['session'];
+      if (session is Map<String, dynamic>) return session;
+      return null;
+    } catch (e) {
+      debugPrint('[Tracking] Error cerrando sesión: $e');
+      return null;
+    }
+  }
+
+  Future<void> _showSummaryDialog({
+    required double distanceKm,
+    required Duration elapsed,
+    required double avgPace,
+    required double avgSpeed,
+  }) async {
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppTheme.surface,
+          title: const Text(
+            '¡Carrera finalizada!',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.emoji_events,
+                  size: 56, color: AppTheme.primary),
+              const SizedBox(height: 16),
+              Text(
+                '${distanceKm.toStringAsFixed(2)} km',
+                style: const TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Tiempo: ${_formatDuration(elapsed)}',
+                style: AppTheme.bodyMedium,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Ritmo: ${avgPace > 0 ? '${_formatPace(avgPace)} /km' : '--'}',
+                style: AppTheme.bodyMedium,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Velocidad media: '
+                '${avgSpeed > 0 ? '${avgSpeed.toStringAsFixed(1)} km/h' : '--'}',
+                style: AppTheme.bodyMedium,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                final paceText =
+                    avgPace > 0 ? '${_formatPace(avgPace)} min/km' : '';
+                Share.share(
+                  '¡Terminé mi carrera! 🏃‍♂️ '
+                  '${distanceKm.toStringAsFixed(2)} km en '
+                  '${_formatDuration(elapsed)}'
+                  '${paceText.isNotEmpty ? ' ($paceText)' : ''}',
+                );
+              },
+              child: const Text('Compartir'),
+            ),
+            FilledButton(
+              key: const ValueKey('runnerSummaryDone'),
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Listo'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     _messageController.dispose();
+    // Asegurar liberación de socket/GPS si la pantalla se destruye por
+    // cualquier vía (error, navegación externa, etc.). leaveRoom es idempotente.
+    context.read<TrackingProvider>().leaveRoom();
     super.dispose();
+  }
+
+  String _formatDuration(Duration d) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final hours = twoDigits(d.inHours);
+    final minutes = twoDigits(d.inMinutes.remainder(60));
+    final seconds = twoDigits(d.inSeconds.remainder(60));
+    if (d.inHours > 0) {
+      return '$hours:$minutes:$seconds';
+    }
+    return '$minutes:$seconds';
+  }
+
+  String _formatPace(double paceMinPerKm) {
+    if (paceMinPerKm <= 0 || !paceMinPerKm.isFinite) return '--';
+    final totalSeconds = (paceMinPerKm * 60).round();
+    final min = totalSeconds ~/ 60;
+    final sec = totalSeconds % 60;
+    return '$min:${sec.toString().padLeft(2, '0')}';
   }
 
   void _sendMessage() {
@@ -108,14 +314,7 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        final provider = context.read<TrackingProvider>();
-        final navigator = Navigator.of(context);
-        final exit = await _confirmExit();
-        if (exit && mounted) {
-          provider.stopTracking();
-          provider.leaveRoom();
-          if (mounted) navigator.pop();
-        }
+        await _exitFlow();
       },
       child: Scaffold(
         appBar: AppBar(
@@ -124,28 +323,27 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
             IconButton(
               icon: const Icon(Icons.stop),
               tooltip: 'Detener tracking',
-              onPressed: () {
-                context.read<TrackingProvider>().stopTracking();
-                context.read<TrackingProvider>().leaveRoom();
-                Navigator.pop(context);
-              },
+              onPressed: _exitFlow,
             ),
             IconButton(
               icon: const Icon(Icons.share, color: AppTheme.primary),
               tooltip: 'Compartir código',
-              onPressed: () {
-                final code =
-                    Provider.of<TrackingProvider>(
-                      context,
-                      listen: false,
-                    ).roomCode ??
-                    '';
-                if (code.isNotEmpty) {
-                  final shareText =
-                      '¡Sígueme en mi carrera en vivo! Ingresa al código: $code';
-                  Share.share(shareText);
-                }
-              },
+                onPressed: () {
+                  final code =
+                      Provider.of<TrackingProvider>(
+                        context,
+                        listen: false,
+                      ).roomCode ??
+                      '';
+                  if (code.isNotEmpty) {
+                    final base = ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
+                    final link = '$base/track/$code';
+                    final shareText =
+                        '¡Sígueme en mi carrera en vivo! $link';
+                    Share.share(shareText);
+                    Clipboard.setData(ClipboardData(text: link));
+                  }
+                },
             ),
           ],
         ),
@@ -215,125 +413,167 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
   }
 
   Widget _buildRunnerBody(TrackingProvider provider) {
-    // Calculamos el progreso: (distancia actual / meta) * 100
+    final loc = provider.currentRunnerLocation;
+    final speed = (loc?['speed'] as num?)?.toDouble();
+    final instantSpeedKmh = speed != null && speed > 0 ? speed * 3.6 : null;
+    final paceFromGps = (loc?['pace'] as num?)?.toDouble() ?? 0;
+    final distanceKm = provider.currentDistance;
+
+    // Fallback: si el GPS no entrega `speed` (común en Android), calculamos
+    // la velocidad y el ritmo a partir de la distancia acumulada y el reloj.
+    final elapsedSec = provider.elapsedTime.inSeconds;
+    final avgSpeedKmh = distanceKm > 0 && elapsedSec > 3
+        ? distanceKm / (elapsedSec / 3600)
+        : null;
+
+    final speedKmh = instantSpeedKmh ?? avgSpeedKmh;
+    final pace = paceFromGps > 0
+        ? paceFromGps
+        : (avgSpeedKmh != null && avgSpeedKmh > 0 ? 60 / avgSpeedKmh : 0.0);
+
+    final hasGps = speedKmh != null || pace > 0 || elapsedSec <= 8;
+
     double progress = 0.0;
-    if (provider.currentDistance > 0 && widget.goalDistance > 0) {
-      progress = (provider.currentDistance / widget.goalDistance).clamp(
-        0.0,
-        1.0,
-      );
+    if (widget.goalDistance > 0) {
+      progress = (distanceKm / widget.goalDistance).clamp(0.0, 1.0);
     }
 
-    return Stack(
+    return Column(
       children: [
-        // Progress Bar at the top (solo si hay meta definida)
         if (widget.goalDistance > 0)
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: LinearProgressIndicator(
-                value: progress,
-                backgroundColor: Colors.grey[900],
-                color: AppTheme.primary,
-              ),
-            ),
+          LinearProgressIndicator(
+            value: progress,
+            backgroundColor: Colors.grey[900],
+            color: AppTheme.primary,
           ),
-        // Map area (placeholder for now)
-        Positioned(
-          top: 40,
-          left: 0,
-          right: 0,
+        // Dashboard de métricas en vivo
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Container(
-            height: 250,
-            color: Colors.grey[900],
-            child: Center(
-              child: Text(
-                widget.goalDistance > 0
-                    ? 'Distancia: ${provider.currentDistance.toStringAsFixed(1)} km / ${widget.goalDistance} km'
-                    : 'Distancia: ${provider.currentDistance.toStringAsFixed(1)} km',
-                style: const TextStyle(color: Colors.white70),
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 16),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF1E2235), Color(0xFF12172B)],
+              ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: AppTheme.primary.withValues(alpha: 0.25),
               ),
             ),
-          ),
-        ),
-
-        // Stats panel
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Card(
-              color: AppTheme.surface,
-              child: Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
+              children: [
+                Text(
+                  _formatDuration(provider.elapsedTime),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 46,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'TIEMPO',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 11,
+                    letterSpacing: 2,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Row(
                   children: [
-                    Text(
-                      'VELOCIDAD: ${provider.currentRunnerLocation?['speed'] != null ? (provider.currentRunnerLocation!['speed'] * 3.6).toStringAsFixed(1) + ' km/h' : '--'}',
-                      key: const ValueKey('trackingSpeedText'),
-                      style: AppTheme.titleMedium,
+                    _buildMetric(
+                      'Distancia',
+                      '${distanceKm.toStringAsFixed(2)} km',
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'RITMO: ${provider.currentRunnerLocation?['pace'] != null ? '${provider.currentRunnerLocation!['pace'].toInt()} min/km' : '--'}',
-                      style: AppTheme.bodyMedium,
+                    _buildMetric(
+                      'Velocidad',
+                      speedKmh == null
+                          ? '--'
+                          : '${speedKmh.toStringAsFixed(1)} km/h',
+                      valueKey: const ValueKey('trackingSpeedText'),
                     ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.meeting_room,
-                          size: 18,
-                          color: AppTheme.primary,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Sala: ${widget.roomCode}',
-                          key: const ValueKey('trackingRoomCodeText'),
-                          style: AppTheme.bodyMedium.copyWith(
-                            color: AppTheme.primary,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.5,
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(
-                            Icons.copy,
-                            size: 16,
-                            color: AppTheme.primary,
-                          ),
-                          tooltip: 'Copiar código',
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () {
-                            Clipboard.setData(
-                              ClipboardData(text: widget.roomCode),
-                            );
-                          },
-                        ),
-                      ],
+                    _buildMetric(
+                      'Ritmo',
+                      pace > 0 ? '${_formatPace(pace)} /km' : '--',
                     ),
                   ],
                 ),
-              ),
+                if (!hasGps) ...[
+                  const SizedBox(height: 14),
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.gps_off,
+                        size: 14,
+                        color: AppTheme.error,
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        'Buscando señal GPS...',
+                        style: TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
             ),
           ),
         ),
-
-        // Chat overlay
-        Positioned(
-          bottom: 0,
-          left: 0,
-          right: 0,
+        // Sala + copiar
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.meeting_room,
+                size: 18,
+                color: AppTheme.primary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Sala: ${widget.roomCode}',
+                key: const ValueKey('trackingRoomCodeText'),
+                style: AppTheme.bodyMedium.copyWith(
+                  color: AppTheme.primary,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.5,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(
+                  Icons.copy,
+                  size: 16,
+                  color: AppTheme.primary,
+                ),
+                tooltip: 'Copiar código',
+                visualDensity: VisualDensity.compact,
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: widget.roomCode));
+                },
+              ),
+            ],
+          ),
+        ),
+        // Chat
+        Expanded(
           child: Container(
-            height: 200,
-            color: AppTheme.surface,
+            margin: const EdgeInsets.only(top: 4),
+            decoration: const BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
             child: Column(
               children: [
                 Container(
@@ -364,25 +604,66 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
                   ),
                 ),
                 Expanded(
-                  child: ListView.builder(
-                    itemCount: provider.messages.length,
-                    itemBuilder: (context, index) {
-                      final msg = provider.messages[index];
-                      return ListTile(
-                        title: Text(
-                          msg['senderName'] ?? 'Espectador',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
+                  child: provider.messages.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'Manda ánimo a tu sala',
+                            style: TextStyle(
+                              color: Colors.white38,
+                              fontSize: 13,
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: provider.messages.length,
+                          itemBuilder: (context, index) {
+                            final msg = provider.messages[index];
+                            return ListTile(
+                              title: Text(
+                                msg['senderName'] ?? 'Espectador',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              subtitle: Text(msg['message'] ?? ''),
+                            );
+                          },
                         ),
-                        subtitle: Text(msg['message'] ?? ''),
-                      );
-                    },
-                  ),
                 ),
               ],
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildMetric(String label, String value, {Key? valueKey}) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            value,
+            key: valueKey,
+            maxLines: 1,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white54,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

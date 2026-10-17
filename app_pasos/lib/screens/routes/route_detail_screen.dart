@@ -7,6 +7,7 @@ import '../../widgets/glass_card.dart';
 import '../../widgets/confirm_dialog.dart';
 import '../share_aura/share_aura_screen.dart';
 import 'route_design_editor_screen.dart';
+import 'route_image_card_screen.dart';
 
 class RouteDetailScreen extends StatelessWidget {
   final UserRoute route;
@@ -27,6 +28,16 @@ class RouteDetailScreen extends StatelessWidget {
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => RouteDesignEditorScreen(route: route)),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.image_outlined, color: AppTheme.primary),
+            tooltip: 'Card con imagen',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => RouteImageCardScreen(route: route)),
               );
             },
           ),

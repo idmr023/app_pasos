@@ -10,11 +10,9 @@ import '../providers/chat_provider.dart';
 import '../providers/route_provider.dart';
 import 'menu_screen.dart';
 import 'home_screen.dart';
-import 'profile_screen.dart';
 import 'gym/gym_screen.dart';
 import 'chat/chat_screen.dart';
 import 'tracking/live_hub_screen.dart';
-import 'routes/routes_screen.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});

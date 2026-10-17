@@ -46,6 +46,10 @@ const trackingLocationSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  distance: {
+    type: Number,
+    default: 0, // km acumulados hasta este punto (enviado por el corredor)
+  },
   timestamp: {
     type: Date,
     default: Date.now,

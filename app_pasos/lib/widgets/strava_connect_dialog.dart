@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../config/theme.dart';
+import '../providers/auth_provider.dart';
 import '../providers/route_provider.dart';
 
 const Color _stravaOrange = Color(0xFFFC4C02);
@@ -80,6 +81,7 @@ class _StravaDialogState extends State<_StravaDialog> {
 
   Future<void> _waitForConnection() async {
     final routeProv = context.read<RouteProvider>();
+    final authProv = context.read<AuthProvider>();
     const maxAttempts = 60;
     for (int i = 0; i < maxAttempts; i++) {
       await Future.delayed(const Duration(seconds: 2));
@@ -92,6 +94,7 @@ class _StravaDialogState extends State<_StravaDialog> {
         Navigator.of(context).pop(true);
         if (_closed || !mounted) return;
         final count = await routeProv.syncStrava();
+        await authProv.refreshProfile();
         if (!_closed && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('¡Conectado a Strava! Sincronizados $count entrenamientos')),

@@ -1,10 +1,13 @@
 const express = require('express');
 const router = express.Router();
+const jwt = require('jsonwebtoken');
 const auth = require('../middleware/auth');
 const TrackingSession = require('../models/TrackingSession');
 const LiveMessage = require('../models/LiveMessage');
 const User = require('../models/User');
 const TrackingLocation = require('../models/TrackingLocation');
+const { finalizeSession } = require('../utils/finalizeTracking');
+const { clearRoomSession, setSessionIdForRoom } = require('../utils/roomSessions');
 
 // Generar código de sala único (6 caracteres)
 function generateRoomCode() {
@@ -32,6 +35,7 @@ router.post('/create', auth, async (req, res) => {
       status: 'active',
       startedAt: new Date(),
     });
+    setSessionIdForRoom(session.code, session._id);
 
     res.status(201).json({
       success: true,
@@ -44,7 +48,7 @@ router.post('/create', auth, async (req, res) => {
 });
 
 // Unirse a una sala como espectador
-router.post('/join', auth, async (req, res) => {
+router.post('/join', async (req, res) => {
   try {
     const { roomCode } = req.body;
 
@@ -62,7 +66,18 @@ router.post('/join', auth, async (req, res) => {
       return res.status(400).json({ error: 'La sesión no está activa' });
     }
 
-    if (!session.isPublic && session.runner.toString() !== req.user._id.toString()) {
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+      try {
+        const token = authHeader.replace('Bearer ', '');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (!session.isPublic && session.runner.toString() !== decoded.userId.toString()) {
+          return res.status(403).json({ error: 'Esta sesión es privada' });
+        }
+      } catch (e) {
+        return res.status(401).json({ error: 'Token inválido' });
+      }
+    } else if (!session.isPublic) {
       return res.status(403).json({ error: 'Esta sesión es privada' });
     }
 
@@ -78,8 +93,28 @@ router.post('/join', auth, async (req, res) => {
   }
 });
 
+// Listar sesiones del usuario autenticado (como corredor), más recientes primero.
+// IMPORTANTE: debe ir ANTES de GET /:roomCode o 'sessions' se interpreta como roomCode.
+router.get('/sessions', auth, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+
+    const sessions = await TrackingSession.find({ runner: req.user._id })
+      .sort({ startedAt: -1 })
+      .limit(limit)
+      .select(
+        'code title status startedAt endedAt totalDistance avgSpeed maxSpeed avgPace pointCount'
+      )
+      .lean();
+
+    res.json({ success: true, sessions });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Obtener información de la sesión actual
-router.get('/:roomCode', auth, async (req, res) => {
+router.get('/:roomCode', async (req, res) => {
   try {
     const { roomCode } = req.params;
 
@@ -89,6 +124,18 @@ router.get('/:roomCode', auth, async (req, res) => {
 
     if (!session) {
       return res.status(404).json({ error: 'Sala no encontrada' });
+    }
+
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+      try {
+        const token = authHeader.replace('Bearer ', '');
+        jwt.verify(token, process.env.JWT_SECRET);
+      } catch (e) {
+        return res.status(401).json({ error: 'Token inválido' });
+      }
+    } else if (!session.isPublic) {
+      return res.status(403).json({ error: 'Esta sesión es privada' });
     }
 
     const runnersInfo = await User.findById(session.runner).select('displayName avatar');
@@ -105,6 +152,8 @@ router.get('/:roomCode', auth, async (req, res) => {
         totalDistance: session.totalDistance,
         avgSpeed: session.avgSpeed,
         maxSpeed: session.maxSpeed,
+        avgPace: session.avgPace,
+        pointCount: session.pointCount,
       },
     });
   } catch (error) {
@@ -127,9 +176,21 @@ router.post('/:roomCode/close', auth, async (req, res) => {
       return res.status(403).json({ error: 'No tienes permiso para cerrar esta sesión' });
     }
 
-    session.status = 'completed';
-    session.endedAt = new Date();
-    await session.save();
+    await finalizeSession(session);
+    clearRoomSession(session.code);
+
+    // Notificar a los espectadores en tiempo real que la carrera terminó.
+    const io = req.app.get('io');
+    if (io) {
+      io.to(session.code).emit('trackingStopped', {
+        message: 'El corredor ha detenido el tracking',
+        totalDistance: session.totalDistance,
+        avgSpeed: session.avgSpeed,
+        maxSpeed: session.maxSpeed,
+        avgPace: session.avgPace,
+        pointCount: session.pointCount,
+      });
+    }
 
     res.json({
       success: true,
@@ -137,6 +198,10 @@ router.post('/:roomCode/close', auth, async (req, res) => {
       session: {
         code: session.code,
         totalDistance: session.totalDistance,
+        avgSpeed: session.avgSpeed,
+        maxSpeed: session.maxSpeed,
+        avgPace: session.avgPace,
+        pointCount: session.pointCount,
         totalTime: (session.endedAt - session.startedAt) / 1000,
         status: session.status,
       },
@@ -147,15 +212,47 @@ router.post('/:roomCode/close', auth, async (req, res) => {
 });
 
 // Obtener historial de ubicaciones
-router.get('/:roomCode/history', auth, async (req, res) => {
+// ?limit=N  -> tope de puntos (máx 5000)
+// ?recent=true -> devuelve los N puntos MÁS RECIENTES (orden cronológico),
+//                 en vez de los N primeros. Lo usa el espectador que se une
+//                 tarde a una carrera larga (si no, solo vería el tramo inicial).
+router.get('/:roomCode/history', async (req, res) => {
   try {
     const { roomCode } = req.params;
-    const { limit = 500 } = req.query;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 500, 5000);
+    const recent = req.query.recent === 'true';
+    const code = roomCode.toUpperCase();
 
-    const locations = await TrackingLocation.find({ roomCode: roomCode.toUpperCase() })
-      .sort({ timestamp: 1 })
-      .limit(parseInt(limit))
-      .lean();
+    const session = await TrackingSession.findOne({ code }).select('isPublic status');
+    if (!session) {
+      return res.status(404).json({ error: 'Sala no encontrada' });
+    }
+    const authHeader = req.headers.authorization;
+    if (!authHeader && !session.isPublic) {
+      return res.status(403).json({ error: 'Esta sesión es privada' });
+    }
+    if (authHeader) {
+      try {
+        jwt.verify(authHeader.replace('Bearer ', ''), process.env.JWT_SECRET);
+      } catch (e) {
+        return res.status(401).json({ error: 'Token inválido' });
+      }
+    }
+
+    let locations;
+    if (recent) {
+      // Los más recientes primero, y luego se devuelven en orden cronológico
+      const latest = await TrackingLocation.find({ roomCode: code })
+        .sort({ timestamp: -1 })
+        .limit(limit)
+        .lean();
+      locations = latest.reverse();
+    } else {
+      locations = await TrackingLocation.find({ roomCode: code })
+        .sort({ timestamp: 1 })
+        .limit(limit)
+        .lean();
+    }
 
     res.json({
       success: true,
@@ -167,10 +264,26 @@ router.get('/:roomCode/history', auth, async (req, res) => {
 });
 
 // Obtener historial de mensajes
-router.get('/:roomCode/messages', auth, async (req, res) => {
+router.get('/:roomCode/messages', async (req, res) => {
   try {
     const { roomCode } = req.params;
     const { limit = 100 } = req.query;
+
+    const session = await TrackingSession.findOne({ code: roomCode.toUpperCase() }).select('isPublic');
+    if (!session) {
+      return res.status(404).json({ error: 'Sala no encontrada' });
+    }
+    const authHeader = req.headers.authorization;
+    if (!authHeader && !session.isPublic) {
+      return res.status(403).json({ error: 'Esta sesión es privada' });
+    }
+    if (authHeader) {
+      try {
+        jwt.verify(authHeader.replace('Bearer ', ''), process.env.JWT_SECRET);
+      } catch (e) {
+        return res.status(401).json({ error: 'Token inválido' });
+      }
+    }
 
     const messages = await LiveMessage.find({ roomCode: roomCode.toUpperCase() })
       .sort({ timestamp: -1 })

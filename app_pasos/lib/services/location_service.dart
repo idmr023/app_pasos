@@ -48,15 +48,29 @@ class LocationService {
     await _checkAndRequestPermissions();
     _isTracking = true;
 
-    // Posición inicial
-    _currentPosition = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-      ),
-    );
-    yield _currentPosition!;
+    // 1) Posición conocida previa (instantánea) para que la UI muestre datos
+    //    de inmediato mientras se obtiene un fix real.
+    try {
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) {
+        _currentPosition = last;
+        yield last;
+      }
+    } catch (_) {}
 
-    // Stream periódico de ubicaciones
+    // 2) Intento de fix actual con timeout: si no responde en 8s no bloqueamos
+    //    el arranque; el stream periódico de abajo seguirá entregando datos.
+    try {
+      final current = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      ).timeout(const Duration(seconds: 8));
+      _currentPosition = current;
+      yield current;
+    } catch (_) {}
+
+    // 3) Stream periódico de ubicaciones (siempre arranca, haya o no fix previo)
     final stream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,

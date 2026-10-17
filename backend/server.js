@@ -24,6 +24,11 @@ const User = require('./models/User');
 const TrackingSession = require('./models/TrackingSession');
 const TrackingLocation = require('./models/TrackingLocation');
 const LiveMessage = require('./models/LiveMessage');
+const { finalizeSession } = require('./utils/finalizeTracking');
+const {
+  getSessionIdForRoom,
+  clearRoomSession,
+} = require('./utils/roomSessions');
 
 dns.setServers(['8.8.8.8', '1.1.1.1']);
 
@@ -93,6 +98,12 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/routes', routeRoutes);
 app.use('/api/tracking', trackingRoutes);
 
+// Visor público de seguimiento en vivo (enlace compartible)
+const path = require('path');
+app.get('/track/:code', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'track.html'));
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'App Pasos API funcionando' });
 });
@@ -122,10 +133,25 @@ const io = new Server(server, {
   pingInterval: 25000,
 });
 
+// Exponer io a las rutas Express (p.ej. /tracking/:roomCode/close) para
+// poder notificar a los espectadores en tiempo real al cerrar una sesión.
+app.set('io', io);
+
 // Middleware de autenticación para sockets
 io.use(async (socket, next) => {
   const token = socket.handshake.auth?.token;
   const roomCode = socket.handshake.query?.roomCode;
+  const isRunner = socket.handshake.query?.isRunner === 'true';
+
+  // Espectador invitado (sin cuenta): permitido solo como espectador.
+  if (!token && !isRunner) {
+    const guestName = (socket.handshake.query?.guestName || 'Invitado').toString().trim().slice(0, 30) || 'Invitado';
+    socket.user = { displayName: guestName, avatar: null, isGuest: true };
+    socket.userId = null;
+    socket.roomCode = roomCode?.toUpperCase();
+    socket.isRunner = false;
+    return next();
+  }
 
   if (!token) {
     return next(new Error('Authentication error: Missing token'));
@@ -141,7 +167,7 @@ io.use(async (socket, next) => {
     socket.user = user;
     socket.userId = user._id;
     socket.roomCode = roomCode?.toUpperCase();
-    socket.isRunner = socket.handshake.query?.isRunner === 'true';
+    socket.isRunner = isRunner;
 
     if (socket.isRunner) {
       const timerKey = `${socket.roomCode}:${socket.userId}`;
@@ -192,9 +218,12 @@ io.on('connection', (socket) => {
     }
 
     try {
+      const sessionId = await getSessionIdForRoom(socket.roomCode, TrackingSession);
+
       // Guardar ubicación en MongoDB
       const location = await TrackingLocation.create({
         roomCode: socket.roomCode,
+        session: sessionId,
         runner: socket.userId,
         latitude: data.latitude,
         longitude: data.longitude,
@@ -203,6 +232,7 @@ io.on('connection', (socket) => {
         heading: data.heading,
         accuracy: data.accuracy,
         altitude: data.altitude,
+        distance: typeof data.distance === 'number' ? data.distance : 0,
         timestamp: new Date(data.timestamp || Date.now()),
       });
 
@@ -244,6 +274,7 @@ io.on('connection', (socket) => {
       const chatMsg = await LiveMessage.create({
         roomCode: socket.roomCode,
         sender: socket.userId,
+        senderName: userName,
         senderType: isRunnerQuery ? 'runner' : 'spectator',
         message: message.trim(),
         timestamp: new Date(),
@@ -274,15 +305,17 @@ io.on('connection', (socket) => {
 
     try {
       const session = await TrackingSession.findOne({ code: socket.roomCode });
-      if (session) {
-        session.status = 'completed';
-        session.endedAt = new Date();
-        await session.save();
-      }
+      await finalizeSession(session);
+      clearRoomSession(socket.roomCode);
 
-      // Notificar a todos
+      // Notificar a todos con las estadísticas finales
       io.to(socket.roomCode).emit('trackingStopped', {
         message: 'El corredor ha detenido el tracking',
+        totalDistance: session ? session.totalDistance : 0,
+        avgSpeed: session ? session.avgSpeed : 0,
+        maxSpeed: session ? session.maxSpeed : 0,
+        avgPace: session ? session.avgPace : 0,
+        pointCount: session ? session.pointCount : 0,
       });
     } catch (err) {
       console.error('Error stopping tracking:', err);
@@ -306,11 +339,15 @@ io.on('connection', (socket) => {
         try {
           const session = await TrackingSession.findOne({ code: socket.roomCode });
           if (session && session.status === 'active') {
-            session.status = 'completed';
-            session.endedAt = new Date();
-            await session.save();
+            await finalizeSession(session);
+            clearRoomSession(socket.roomCode);
             io.to(socket.roomCode).emit('trackingStopped', {
               message: 'El corredor se ha desconectado',
+              totalDistance: session.totalDistance,
+              avgSpeed: session.avgSpeed,
+              maxSpeed: session.maxSpeed,
+              avgPace: session.avgPace,
+              pointCount: session.pointCount,
             });
           }
         } catch (err) {

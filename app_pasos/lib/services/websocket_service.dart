@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:socket_io_client/socket_io_client.dart' as io_client;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/api.dart';
 
@@ -13,7 +13,7 @@ class WebSocketService {
   factory WebSocketService() => _instance;
   WebSocketService._internal();
 
-  IO.Socket? _socket;
+  io_client.Socket? _socket;
   bool _isConnected = false;
   final _storage = const FlutterSecureStorage();
 
@@ -26,11 +26,17 @@ class WebSocketService {
 
   Stream<Map<String, dynamic>> get events => _eventsController.stream;
 
-  Future<void> connect({required String roomCode, bool isRunner = false}) async {
+  Future<void> connect({
+    required String roomCode,
+    bool isRunner = false,
+    String? guestName,
+  }) async {
     disconnect();
 
     final token = await _storage.read(key: 'auth_token');
-    if (token == null) {
+    final isGuest = guestName != null;
+
+    if (!isGuest && token == null) {
       throw Exception('No hay token de autenticación');
     }
 
@@ -38,21 +44,27 @@ class WebSocketService {
     // (ej. https://app-pasos.onrender.com/api -> https://app-pasos.onrender.com)
     final baseUrl = ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
 
-    _socket = IO.io(
-      baseUrl,
-      IO.OptionBuilder()
-          .setTransports(['websocket'])
-          .disableAutoConnect()
-          .setAuth({'token': token})
-          .setQuery({
-            'roomCode': roomCode,
-            'isRunner': isRunner.toString(),
-          })
-          .build(),
-    );
+    final completer = Completer<void>();
+
+    final optionBuilder = io_client.OptionBuilder()
+        .setTransports(['websocket'])
+        .disableAutoConnect()
+        .setQuery({
+          'roomCode': roomCode,
+          'isRunner': isRunner.toString(),
+          if (isGuest) 'guest': 'true',
+          if (isGuest) 'guestName': guestName,
+        });
+
+    if (!isGuest && token != null) {
+      optionBuilder.setAuth({'token': token});
+    }
+
+    _socket = io_client.io(baseUrl, optionBuilder.build());
 
     _socket!.onConnect((_) {
       _isConnected = true;
+      if (!completer.isCompleted) completer.complete();
     });
 
     _socket!.onDisconnect((_) {
@@ -65,6 +77,9 @@ class WebSocketService {
         'type': 'error',
         'data': {'message': 'Error de conexión: $err'},
       });
+      if (!completer.isCompleted) {
+        completer.completeError(Exception('Error de conexión: $err'));
+      }
     });
 
     _socket!.onError((err) {
@@ -90,6 +105,13 @@ class WebSocketService {
     }
 
     _socket!.connect();
+
+    try {
+      await completer.future.timeout(const Duration(seconds: 20));
+    } catch (e) {
+      _isConnected = false;
+      rethrow;
+    }
   }
 
   void sendLocation(Map<String, dynamic> data) {

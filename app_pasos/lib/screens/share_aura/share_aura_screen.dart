@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:gal/gal.dart';
 import '../../config/theme.dart';
+import '../../models/route.dart';
 import '../../models/route_card_template.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/aura_card_service.dart';
@@ -13,6 +14,7 @@ import '../../services/route_service.dart';
 import '../../widgets/aura_card_composer.dart';
 import '../../widgets/aura_card_builder.dart';
 import '../../widgets/route_texture_renderer.dart';
+import '../routes/route_image_card_screen.dart';
 
 /// Pantalla principal del módulo Share Aura V3.
 ///
@@ -35,6 +37,7 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
   ui.Image? _mapImage;
   bool _isLoading = true;
   String? _error;
+  UserRoute? _loadedRoute;
 
   @override
   void initState() {
@@ -86,6 +89,7 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
           coordinates: route.coordinates,
           routeTexture: routeTexture,
         );
+        _loadedRoute = route;
         _mapImage = mapImage;
         _isLoading = false;
       });
@@ -109,6 +113,15 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
         data: _auraData!,
         mapImage: _mapImage,
       ),
+    );
+  }
+
+  void _openImageCard() {
+    final route = _loadedRoute;
+    if (route == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => RouteImageCardScreen(route: route)),
     );
   }
 
@@ -192,6 +205,7 @@ class _ShareAuraScreenState extends State<ShareAuraScreen> {
                   template: template,
                   onTap: () => _openConfigurator(template),
                 ),
+              _ImageBackgroundCard(onTap: _openImageCard),
             ],
           ),
         ),
@@ -257,6 +271,63 @@ class _TemplateGridCard extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: Colors.white38, fontSize: 10, height: 1.3),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Tarjeta extra que abre la pantalla "Card con Imagen" (fondo personalizado).
+class _ImageBackgroundCard extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _ImageBackgroundCard({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    const accent = Color(0xFF00D4FF);
+
+    return Material(
+      color: const Color(0xFF10121D),
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: accent.withValues(alpha: 0.25)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.image_outlined, color: accent, size: 26),
+              ),
+              const Spacer(),
+              const Text(
+                'Card con Imagen',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Sube una foto de fondo y tus datos en panel transparente',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Colors.white38, fontSize: 10, height: 1.3),
               ),
             ],
           ),

@@ -124,7 +124,10 @@ class _RoutesScreenState extends State<RoutesScreen> {
   }
 
   Future<void> _connectStrava(BuildContext context) async {
-    await StravaConnectDialog.show(context);
+    final connected = await StravaConnectDialog.show(context);
+    if (connected && context.mounted) {
+      await context.read<AuthProvider>().refreshProfile();
+    }
   }
 
   Widget _buildRouteCard(UserRoute route) {

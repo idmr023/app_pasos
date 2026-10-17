@@ -36,7 +36,7 @@ const trackingSessionSchema = new mongoose.Schema({
   },
   totalDistance: {
     type: Number,
-    default: 0, // meters
+    default: 0, // km (calculado por finalizeSession al cerrar la sesión)
   },
   avgSpeed: {
     type: Number,

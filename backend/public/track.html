@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>App Pasos - Seguimiento en vivo</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #0b0f1a; color: #fff; }
+    #map { height: 60vh; width: 100%; }
+    .bar { padding: 10px 14px; background: #12172b; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+    .stat { font-size: 14px; }
+    .stat b { color: #ff6b35; }
+    .chat { height: 35vh; display: flex; flex-direction: column; border-top: 1px solid #222; }
+    .msgs { flex: 1; overflow-y: auto; padding: 10px; }
+    .msg { margin-bottom: 6px; font-size: 13px; }
+    .msg .name { font-weight: bold; color: #ff6b35; }
+    .inputrow { display: flex; padding: 8px; gap: 8px; background: #12172b; }
+    input { flex: 1; padding: 8px; border-radius: 6px; border: 1px solid #333; background: #0b0f1a; color: #fff; }
+    button { padding: 8px 12px; border: none; border-radius: 6px; background: #ff6b35; color: #fff; cursor: pointer; }
+    .banner { background: #d32f2f; padding: 8px 14px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <div class="stat">Sala: <b id="code"></b></div>
+    <div class="stat">Distancia: <b id="dist">--</b> km</div>
+    <div class="stat">Velocidad: <b id="speed">--</b> km/h</div>
+    <div class="stat">Ritmo: <b id="pace">--</b></div>
+  </div>
+  <div id="stoppedBanner" class="banner" style="display:none"></div>
+  <div id="map"></div>
+  <div class="chat">
+    <div class="msgs" id="msgs"></div>
+    <div class="inputrow">
+      <input id="nameInput" placeholder="Tu nombre" />
+      <input id="msgInput" placeholder="Escribe un mensaje..." />
+      <button id="sendBtn">Enviar</button>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <script>
+    const code = (location.pathname.split('/').pop() || '').toUpperCase();
+    document.getElementById('code').textContent = code;
+
+    const map = L.map('map').setView([-12.0464, -77.0428], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+
+    const route = [];
+    let marker = null;
+    const polyline = L.polyline(route, { color: '#ff6b35', weight: 5 }).addTo(map);
+
+    function setMetric(id, val) { document.getElementById(id).textContent = val; }
+
+    let guestName = localStorage.getItem('guestName') || 'Invitado';
+    document.getElementById('nameInput').value = guestName;
+
+    const socket = io(window.location.origin, {
+      query: { roomCode: code, isRunner: 'false', guest: 'true', guestName: guestName }
+    });
+
+    socket.on('connect', () => console.log('connected'));
+    socket.on('locationUpdate', (d) => {
+      const lat = d.latitude, lng = d.longitude;
+      if (typeof lat !== 'number' || typeof lng !== 'number') return;
+      route.push([lat, lng]);
+      polyline.setLatLngs(route);
+      if (!marker) {
+        marker = L.marker([lat, lng]).addTo(map);
+        map.setView([lat, lng], 15);
+      } else {
+        marker.setLatLng([lat, lng]);
+      }
+      setMetric('dist', (d.distance || 0).toFixed(2));
+      setMetric('speed', ((d.speed || 0) * 3.6).toFixed(1));
+      setMetric('pace', d.pace ? d.pace.toFixed(2) + ' min/km' : '--');
+    });
+
+    socket.on('chatMessage', (d) => {
+      const msgs = document.getElementById('msgs');
+      const div = document.createElement('div');
+      div.className = 'msg';
+      div.innerHTML = '<span class="name">' + (d.senderName || 'Espectador') + ':</span> ' + (d.message || '');
+      msgs.appendChild(div);
+      msgs.scrollTop = msgs.scrollHeight;
+    });
+
+    socket.on('trackingStopped', (d) => {
+      const b = document.getElementById('stoppedBanner');
+      b.style.display = 'block';
+      b.textContent = 'Carrera finalizada — ' + ((d.totalDistance || 0).toFixed ? d.totalDistance.toFixed(2) : d.totalDistance) + ' km';
+    });
+
+    document.getElementById('sendBtn').addEventListener('click', () => {
+      const name = document.getElementById('nameInput').value.trim() || 'Invitado';
+      const text = document.getElementById('msgInput').value.trim();
+      if (!text) return;
+      localStorage.setItem('guestName', name);
+      // actualizar nombre en socket no es dinámico; enviar como está
+      socket.emit('chatMessage', { message: text });
+      document.getElementById('msgInput').value = '';
+    });
+
+    // Cargar historial via REST
+    fetch('/api/tracking/' + code + '/history?recent=true&limit=1000')
+      .then(r => r.json())
+      .then(data => {
+        if (data && Array.isArray(data.locations)) {
+          data.locations.forEach(l => {
+            if (typeof l.latitude === 'number' && typeof l.longitude === 'number') {
+              route.push([l.latitude, l.longitude]);
+            }
+          });
+          polyline.setLatLngs(route);
+          if (route.length) {
+            const last = route[route.length-1];
+            if (!marker) marker = L.marker(last).addTo(map);
+            else marker.setLatLng(last);
+            map.setView(last, 15);
+          }
+        }
+      }).catch(() => {});
+  </script>
+</body>
+</html>
