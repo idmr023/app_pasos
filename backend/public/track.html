@@ -46,8 +46,8 @@
     document.getElementById('code').textContent = code;
 
     const map = L.map('map').setView([-12.0464, -77.0428], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap'
+    L.tileLayer('https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
     }).addTo(map);
 
     const route = [];
@@ -80,13 +80,21 @@
       setMetric('pace', d.pace ? d.pace.toFixed(2) + ' min/km' : '--');
     });
 
-    socket.on('chatMessage', (d) => {
+    function appendMessage(d) {
       const msgs = document.getElementById('msgs');
       const div = document.createElement('div');
       div.className = 'msg';
-      div.innerHTML = '<span class="name">' + (d.senderName || 'Espectador') + ':</span> ' + (d.message || '');
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = (d.senderName || 'Espectador') + ':';
+      div.appendChild(name);
+      div.appendChild(document.createTextNode(' ' + (d.message || '')));
       msgs.appendChild(div);
       msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    socket.on('chatMessage', (d) => {
+      appendMessage(d);
     });
 
     socket.on('trackingStopped', (d) => {
@@ -122,6 +130,14 @@
             else marker.setLatLng(last);
             map.setView(last, 15);
           }
+        }
+      }).catch(() => {});
+
+    fetch('/api/tracking/' + code + '/messages?limit=100')
+      .then(r => r.json())
+      .then(data => {
+        if (data && Array.isArray(data.messages)) {
+          data.messages.forEach(appendMessage);
         }
       }).catch(() => {});
   </script>

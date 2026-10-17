@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 /// Servicio singleton de geolocalización para el tracking en vivo.
@@ -71,11 +72,29 @@ class LocationService {
     } catch (_) {}
 
     // 3) Stream periódico de ubicaciones (siempre arranca, haya o no fix previo)
+    final locationSettings =
+        defaultTargetPlatform == TargetPlatform.android
+            ? AndroidSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: _distanceFilterMeters,
+              intervalDuration: const Duration(seconds: 5),
+              foregroundNotificationConfig: const ForegroundNotificationConfig(
+                notificationTitle: 'App Pasos está registrando tu carrera',
+                notificationText:
+                    'El tracking continúa activo mientras usas otra app.',
+                notificationChannelName: 'Tracking en vivo',
+                enableWakeLock: true,
+                enableWifiLock: true,
+                setOngoing: true,
+              ),
+            )
+            : const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: _distanceFilterMeters,
+            );
+
     final stream = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: _distanceFilterMeters,
-      ),
+      locationSettings: locationSettings,
     );
 
     await for (final position in stream) {
@@ -89,5 +108,9 @@ class LocationService {
     _isTracking = false;
     await _positionSubscription?.cancel();
     _positionSubscription = null;
+  }
+
+  Future<void> restartTracking() async {
+    await stopTracking();
   }
 }

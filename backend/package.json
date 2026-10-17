@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
+    "dev:mobile": "start \"App Pasos Backend\" cmd /k \"npm run dev\" && start \"App Pasos Flutter\" cmd /k \"cd /d ..\\app_pasos && flutter run --dart-define=BACKEND_URL=https://app-pasos-za8s.onrender.com/api\"",
     "seed": "node seed.js",
     "seed-quotes": "node seed-quotes.js",
     "seed-exercises": "node seed-exercisedb.js",

@@ -47,7 +47,13 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'", 'https://unpkg.com', 'https://cdn.socket.io'],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://unpkg.com'],
-      imgSrc: ["'self'", 'data:', 'https://*.tile.openstreetmap.org', 'https://unpkg.com'],
+      imgSrc: [
+        "'self'",
+        'data:',
+        'https://*.tile.openstreetmap.org',
+        'https://basemaps.cartocdn.com',
+        'https://unpkg.com',
+      ],
       connectSrc: ["'self'", 'https:', 'wss:', 'ws:'],
       fontSrc: ["'self'", 'https://unpkg.com', 'data:'],
     },
@@ -132,6 +138,7 @@ app.use((err, req, res, next) => {
 
 // --- Configuración de Socket.IO ---
 const runnerTimers = {};
+const runnerDisconnectGraceMs = 5 * 60 * 1000;
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -363,7 +370,7 @@ io.on('connection', (socket) => {
         } catch (err) {
           console.error('Error en runner disconnect timeout:', err);
         }
-      }, 30000);
+      }, runnerDisconnectGraceMs);
     }
   });
 });

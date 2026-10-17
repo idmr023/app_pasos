@@ -44,6 +44,7 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   // --- Stats finales (emitidas por el backend al detener el tracking) ---
   Map<String, dynamic>? _finalStats;
+  bool _resuming = false;
 
   TrackingProvider() {
     WidgetsBinding.instance.addObserver(this);
@@ -88,17 +89,35 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed &&
         _roomCode != null &&
-        !_trackingStopped &&
-        !_wsService.isConnected) {
+        !_trackingStopped) {
       _reconnectAfterResume();
     }
   }
 
   Future<void> _reconnectAfterResume() async {
+    if (_resuming) return;
+    _resuming = true;
     try {
-      await _wsService.reconnect();
+      if (!_wsService.isConnected) {
+        await _wsService.reconnect();
+      }
       _isConnected = true;
-      await Future.wait([_loadRouteHistory(), _loadMessageHistory()]);
+      if (_role == TrackingRole.runner && _isRunner && _isTracking) {
+        await _locationService.restartTracking();
+        _positionSubscription?.cancel();
+        _positionSubscription = _locationService.startTracking().listen(
+          _sendPositionAsRunner,
+          onError: (e) {
+            _error = 'Error de GPS: $e';
+            notifyListeners();
+          },
+        );
+      }
+      final reloadTasks = <Future<void>>[_loadMessageHistory()];
+      if (_role == TrackingRole.spectator) {
+        reloadTasks.add(_loadRouteHistory());
+      }
+      await Future.wait(reloadTasks);
       _error = null;
       notifyListeners();
     } catch (e) {
@@ -107,6 +126,8 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
           'No se pudo reconectar al tracking. Revisa tu conexión e inténtalo de nuevo.';
       debugPrint('[Tracking] Error reconectando al volver a la app: $e');
       notifyListeners();
+    } finally {
+      _resuming = false;
     }
   }
 

@@ -44,7 +44,10 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
     final provider = context.read<TrackingProvider>();
     try {
       if (widget.guestName != null) {
-        await provider.joinAsGuest(widget.roomCode, guestName: widget.guestName!);
+        await provider.joinAsGuest(
+          widget.roomCode,
+          guestName: widget.guestName!,
+        );
       } else {
         await provider.joinAsSpectator(widget.roomCode);
       }
@@ -93,17 +96,16 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
       return;
     }
     _lastCentered = target;
-    _mapController.move(target, _mapController.camera.zoom < 14
-        ? 16
-        : _mapController.camera.zoom);
+    _mapController.move(
+      target,
+      _mapController.camera.zoom < 14 ? 16 : _mapController.camera.zoom,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Sala: ${widget.roomCode}'),
-      ),
+      appBar: AppBar(title: Text('Sala: ${widget.roomCode}')),
       body: _buildBody(),
     );
   }
@@ -118,8 +120,11 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
             children: [
               const Icon(Icons.error_outline, size: 64, color: AppTheme.error),
               const SizedBox(height: 16),
-              Text(_startError!, textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70)),
+              Text(
+                _startError!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70),
+              ),
               const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: _retry,
@@ -151,8 +156,11 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
                 children: [
                   const Icon(Icons.wifi_off, size: 64, color: AppTheme.error),
                   const SizedBox(height: 16),
-                  Text(provider.error!, textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white70)),
+                  Text(
+                    provider.error!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white70),
+                  ),
                   const SizedBox(height: 24),
                   TextButton(
                     onPressed: _backToHub,
@@ -177,14 +185,15 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
       if (mounted) _centerOnRunner(provider);
     });
 
-    final LatLng? runnerLatLng = currentLoc != null &&
-            currentLoc['latitude'] is num &&
-            currentLoc['longitude'] is num
-        ? LatLng(
-            (currentLoc['latitude'] as num).toDouble(),
-            (currentLoc['longitude'] as num).toDouble(),
-          )
-        : (routePoints.isNotEmpty ? routePoints.last : null);
+    final LatLng? runnerLatLng =
+        currentLoc != null &&
+                currentLoc['latitude'] is num &&
+                currentLoc['longitude'] is num
+            ? LatLng(
+              (currentLoc['latitude'] as num).toDouble(),
+              (currentLoc['longitude'] as num).toDouble(),
+            )
+            : (routePoints.isNotEmpty ? routePoints.last : null);
 
     final speedKmh = ((currentLoc?['speed'] as num?) ?? 0).toDouble() * 3.6;
     final distanceKm = provider.currentDistance;
@@ -200,7 +209,8 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
               initialCenter: runnerLatLng ?? const LatLng(-12.0464, -77.0428),
               initialZoom: 15,
               interactionOptions: const InteractionOptions(
-                flags: InteractiveFlag.pinchZoom |
+                flags:
+                    InteractiveFlag.pinchZoom |
                     InteractiveFlag.drag |
                     InteractiveFlag.doubleTapZoom,
               ),
@@ -213,9 +223,18 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                // No usar directamente los servidores voluntarios de OSM
+                // desde Flutter Web: pueden bloquear tráfico sin un User-Agent
+                // configurable por la aplicación.
+                urlTemplate:
+                    'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.apppasos.app_pasos',
                 maxZoom: 19,
+              ),
+              RichAttributionWidget(
+                attributions: [
+                  TextSourceAttribution('© OpenStreetMap contributors © CARTO'),
+                ],
               ),
               if (routePoints.length > 1)
                 PolylineLayer(
@@ -255,24 +274,31 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
             color: AppTheme.surface.withValues(alpha: 0.92),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              child: currentLoc != null
-                  ? Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        _buildStat('Distancia', '${distanceKm.toStringAsFixed(2)} km'),
-                        _buildStat('Velocidad', '${speedKmh.toStringAsFixed(1)} km/h'),
-                        _buildStat(
-                          'Ritmo',
-                          pace > 0 ? '${_formatPace(pace)} /km' : '--',
+              child:
+                  currentLoc != null
+                      ? Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _buildStat(
+                            'Distancia',
+                            '${distanceKm.toStringAsFixed(2)} km',
+                          ),
+                          _buildStat(
+                            'Velocidad',
+                            '${speedKmh.toStringAsFixed(1)} km/h',
+                          ),
+                          _buildStat(
+                            'Ritmo',
+                            pace > 0 ? '${_formatPace(pace)} /km' : '--',
+                          ),
+                        ],
+                      )
+                      : const Center(
+                        child: Text(
+                          'Esperando datos del corredor...',
+                          style: TextStyle(color: Colors.white70),
                         ),
-                      ],
-                    )
-                  : const Center(
-                      child: Text(
-                        'Esperando datos del corredor...',
-                        style: TextStyle(color: Colors.white70),
                       ),
-                    ),
             ),
           ),
         ),

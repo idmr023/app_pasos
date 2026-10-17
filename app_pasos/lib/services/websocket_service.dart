@@ -147,6 +147,20 @@ class WebSocketService {
   Future<void> reconnect() async {
     final roomCode = _roomCode;
     if (roomCode == null || _isConnected) return;
+
+    // Reuse the existing Socket.IO client when possible. Calling connect()
+    // creates a new socket and emits disconnect on the old one, which can
+    // trigger the backend's runner disconnect timeout.
+    final socket = _socket;
+    if (socket != null) {
+      socket.connect();
+      for (var attempt = 0; attempt < 40; attempt++) {
+        if (_isConnected) return;
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+      throw Exception('Tiempo de espera agotado al reconectar');
+    }
+
     await connect(
       roomCode: roomCode,
       isRunner: _isRunner,
