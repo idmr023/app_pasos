@@ -52,6 +52,7 @@ app.use(helmet({
         'data:',
         'https://*.tile.openstreetmap.org',
         'https://basemaps.cartocdn.com',
+        'https://server.arcgisonline.com',
         'https://unpkg.com',
       ],
       connectSrc: ["'self'", 'https:', 'wss:', 'ws:'],
@@ -286,12 +287,20 @@ io.on('connection', (socket) => {
     try {
       // Determinar tipo de remitente
       const isRunnerQuery = socket.handshake.query?.isRunner === 'true';
+      const requestedName =
+        typeof data?.senderName === 'string'
+          ? data.senderName.trim().slice(0, 30)
+          : '';
+      const senderDisplayName =
+        socket.user?.isGuest && requestedName
+          ? requestedName
+          : userName;
 
       // Guardar mensaje en MongoDB
       const chatMsg = await LiveMessage.create({
         roomCode: socket.roomCode,
         sender: socket.userId,
-        senderName: userName,
+        senderName: senderDisplayName,
         senderType: isRunnerQuery ? 'runner' : 'spectator',
         message: message.trim(),
         timestamp: new Date(),
@@ -301,7 +310,7 @@ io.on('connection', (socket) => {
       io.to(socket.roomCode).emit('chatMessage', {
         message: message.trim(),
         senderId: socket.userId,
-        senderName: userName,
+        senderName: senderDisplayName,
         senderAvatar: socket.user.avatar,
         timestamp: chatMsg.timestamp.toISOString(),
         senderType: isRunnerQuery ? 'runner' : 'spectator',
