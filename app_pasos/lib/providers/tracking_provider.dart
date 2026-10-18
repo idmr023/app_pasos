@@ -105,6 +105,8 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (_role == TrackingRole.runner && _isRunner && _isTracking) {
         await _locationService.restartTracking();
         _positionSubscription?.cancel();
+        _lastPosition = null;
+        _lastAcceptedPositionTime = null;
         _positionSubscription = _locationService.startTracking().listen(
           _sendPositionAsRunner,
           onError: (e) {
@@ -161,6 +163,7 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
     _positionSubscription?.cancel();
     _positionSubscription = null;
     _lastPosition = null;
+    _lastAcceptedPositionTime = null;
     _locationService.stopTracking();
 
     try {
@@ -209,8 +212,20 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Position? _lastPosition;
+  DateTime? _lastAcceptedPositionTime;
 
   void _sendPositionAsRunner(Position position) {
+    final positionAge = DateTime.now().difference(position.timestamp);
+    if (positionAge > const Duration(seconds: 30) ||
+        position.timestamp.isBefore(
+          _lastAcceptedPositionTime ?? DateTime(2000),
+        ) ||
+        !position.accuracy.isFinite ||
+        position.accuracy <= 0 ||
+        position.accuracy > 25) {
+      return;
+    }
+
     // Distancia acumulada en km
     if (_lastPosition != null) {
       final deltaMeters = Geolocator.distanceBetween(
@@ -219,15 +234,23 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
         position.latitude,
         position.longitude,
       );
-      // Ignorar saltos de ruido GPS: solo contar movimientos reales
-      // (evita sumar km cuando el dispositivo está quieto).
-      if (deltaMeters >= 5.0 &&
-          position.accuracy <= 25 &&
-          (position.speed <= 0 || position.speed >= 0.3)) {
+      final elapsedSeconds =
+          position.timestamp.difference(_lastPosition!.timestamp).inSeconds;
+      final speedMetersPerSecond =
+          position.speed.isFinite && position.speed > 0 ? position.speed : 0;
+      final maxPlausibleDelta = [
+        40.0,
+        speedMetersPerSecond * elapsedSeconds +
+            position.accuracy +
+            _lastPosition!.accuracy,
+      ].reduce((a, b) => a > b ? a : b);
+
+      if (deltaMeters >= 3.0 && deltaMeters <= maxPlausibleDelta) {
         _currentDistance += deltaMeters / 1000.0;
       }
     }
     _lastPosition = position;
+    _lastAcceptedPositionTime = position.timestamp;
 
     // Pace (min/km) desde speed (m/s): pace = 60 / (speed * 3.6)
     double pace = 0;

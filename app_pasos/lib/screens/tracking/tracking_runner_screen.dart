@@ -128,7 +128,9 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
     final elapsedSec = localElapsed.inSeconds;
     final serverDistance = (serverStats?['totalDistance'] as num?)?.toDouble();
     var distanceKm =
-        (serverDistance != null && serverDistance > 0) ? serverDistance : localDistance;
+        (serverDistance != null && serverDistance > 0)
+            ? serverDistance
+            : localDistance;
     var avgPace = (serverStats?['avgPace'] as num?)?.toDouble() ?? 0;
     var avgSpeed = (serverStats?['avgSpeed'] as num?)?.toDouble() ?? 0;
     if (avgSpeed <= 0 && distanceKm > 0 && elapsedSec > 0) {
@@ -155,16 +157,17 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
     await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => const AlertDialog(
-        backgroundColor: AppTheme.surface,
-        content: Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 16),
-            Expanded(child: Text('Guardando tu carrera...')),
-          ],
-        ),
-      ),
+      builder:
+          (dialogContext) => const AlertDialog(
+            backgroundColor: AppTheme.surface,
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Expanded(child: Text('Guardando tu carrera...')),
+              ],
+            ),
+          ),
     );
   }
 
@@ -216,8 +219,7 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.emoji_events,
-                  size: 56, color: AppTheme.primary),
+              const Icon(Icons.emoji_events, size: 56, color: AppTheme.primary),
               const SizedBox(height: 16),
               Text(
                 '${distanceKm.toStringAsFixed(2)} km',
@@ -329,22 +331,24 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
             IconButton(
               icon: const Icon(Icons.share, color: AppTheme.primary),
               tooltip: 'Compartir código',
-                onPressed: () {
-                  final code =
-                      Provider.of<TrackingProvider>(
-                        context,
-                        listen: false,
-                      ).roomCode ??
-                      '';
-                  if (code.isNotEmpty) {
-                    final base = ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
-                    final link = '$base/track/$code';
-                    final shareText =
-                        '¡Sígueme en mi carrera en vivo! $link';
-                    Share.share(shareText);
-                    Clipboard.setData(ClipboardData(text: link));
-                  }
-                },
+              onPressed: () {
+                final code =
+                    Provider.of<TrackingProvider>(
+                      context,
+                      listen: false,
+                    ).roomCode ??
+                    '';
+                if (code.isNotEmpty) {
+                  final base = ApiConfig.baseUrl.replaceFirst(
+                    RegExp(r'/api/?$'),
+                    '',
+                  );
+                  final link = '$base/track/$code';
+                  final shareText = '¡Sígueme en mi carrera en vivo! $link';
+                  Share.share(shareText);
+                  Clipboard.setData(ClipboardData(text: link));
+                }
+              },
             ),
           ],
         ),
@@ -363,8 +367,11 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
             children: [
               const Icon(Icons.error_outline, size: 64, color: AppTheme.error),
               const SizedBox(height: 16),
-              Text(_startError!, textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70)),
+              Text(
+                _startError!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70),
+              ),
               const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: _retry,
@@ -396,8 +403,11 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
                 children: [
                   const Icon(Icons.wifi_off, size: 64, color: AppTheme.error),
                   const SizedBox(height: 16),
-                  Text(provider.error!, textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white70)),
+                  Text(
+                    provider.error!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white70),
+                  ),
                   const SizedBox(height: 24),
                   TextButton(
                     onPressed: _backToHub,
@@ -423,14 +433,16 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
     // Fallback: si el GPS no entrega `speed` (común en Android), calculamos
     // la velocidad y el ritmo a partir de la distancia acumulada y el reloj.
     final elapsedSec = provider.elapsedTime.inSeconds;
-    final avgSpeedKmh = distanceKm > 0 && elapsedSec > 3
-        ? distanceKm / (elapsedSec / 3600)
-        : null;
+    final avgSpeedKmh =
+        distanceKm > 0 && elapsedSec > 3
+            ? distanceKm / (elapsedSec / 3600)
+            : null;
 
     final speedKmh = instantSpeedKmh ?? avgSpeedKmh;
-    final pace = paceFromGps > 0
-        ? paceFromGps
-        : (avgSpeedKmh != null && avgSpeedKmh > 0 ? 60 / avgSpeedKmh : 0.0);
+    final pace =
+        paceFromGps > 0
+            ? paceFromGps
+            : (avgSpeedKmh != null && avgSpeedKmh > 0 ? 60 / avgSpeedKmh : 0.0);
 
     final hasGps = speedKmh != null || pace > 0 || elapsedSec <= 8;
 
@@ -510,11 +522,7 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
                   const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(
-                        Icons.gps_off,
-                        size: 14,
-                        color: AppTheme.error,
-                      ),
+                      Icon(Icons.gps_off, size: 14, color: AppTheme.error),
                       SizedBox(width: 6),
                       Text(
                         'Buscando señal GPS...',
@@ -537,11 +545,7 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
-                Icons.meeting_room,
-                size: 18,
-                color: AppTheme.primary,
-              ),
+              const Icon(Icons.meeting_room, size: 18, color: AppTheme.primary),
               const SizedBox(width: 6),
               Text(
                 'Sala: ${widget.roomCode}',
@@ -553,11 +557,7 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
                 ),
               ),
               IconButton(
-                icon: const Icon(
-                  Icons.copy,
-                  size: 16,
-                  color: AppTheme.primary,
-                ),
+                icon: const Icon(Icons.copy, size: 16, color: AppTheme.primary),
                 tooltip: 'Copiar código',
                 visualDensity: VisualDensity.compact,
                 onPressed: () {
@@ -577,59 +577,61 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
             ),
             child: Column(
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _messageController,
-                          onSubmitted: (_) => _sendMessage(),
-                          decoration: InputDecoration(
-                            hintText: 'Escribe un mensaje...',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.send, color: AppTheme.primary),
-                        tooltip: 'Enviar',
-                        onPressed: _sendMessage,
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: provider.messages.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'Manda ánimo a tu sala',
-                            style: TextStyle(
-                              color: Colors.white38,
-                              fontSize: 13,
-                            ),
-                          ),
-                        )
-                      : ListView.builder(
-                          itemCount: provider.messages.length,
-                          itemBuilder: (context, index) {
-                            final msg = provider.messages[index];
-                            return ListTile(
-                              title: Text(
-                                msg['senderName'] ?? 'Espectador',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
+                if (!provider.trackingStopped)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _messageController,
+                            onSubmitted: (_) => _sendMessage(),
+                            decoration: InputDecoration(
+                              hintText: 'Escribe un mensaje...',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(20),
                               ),
-                              subtitle: Text(msg['message'] ?? ''),
-                            );
-                          },
+                            ),
+                          ),
                         ),
+                        IconButton(
+                          icon: const Icon(Icons.send, color: AppTheme.primary),
+                          tooltip: 'Enviar',
+                          onPressed: _sendMessage,
+                        ),
+                      ],
+                    ),
+                  ),
+                Expanded(
+                  child:
+                      provider.messages.isEmpty
+                          ? const Center(
+                            child: Text(
+                              'Manda ánimo a tu sala',
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 13,
+                              ),
+                            ),
+                          )
+                          : ListView.builder(
+                            itemCount: provider.messages.length,
+                            itemBuilder: (context, index) {
+                              final msg = provider.messages[index];
+                              return ListTile(
+                                title: Text(
+                                  msg['senderName'] ?? 'Espectador',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                subtitle: Text(msg['message'] ?? ''),
+                              );
+                            },
+                          ),
                 ),
               ],
             ),

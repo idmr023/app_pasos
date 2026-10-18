@@ -285,6 +285,15 @@ io.on('connection', (socket) => {
     }
 
     try {
+      const session = await TrackingSession.findOne({
+        code: socket.roomCode,
+      }).select('status');
+      if (!session || session.status !== 'active') {
+        return socket.emit('error', {
+          message: 'El chat está cerrado porque la actividad ya finalizó',
+        });
+      }
+
       // Determinar tipo de remitente
       const isRunnerQuery = socket.handshake.query?.isRunner === 'true';
       const requestedName =

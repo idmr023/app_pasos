@@ -424,33 +424,33 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
                     },
                   ),
                 ),
-                // Input
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  color: AppTheme.surface,
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _messageController,
-                          onSubmitted: (_) => _sendMessage(),
-                          decoration: const InputDecoration(
-                            hintText: 'Escribe un mensaje...',
-                            border: OutlineInputBorder(),
+                if (!provider.trackingStopped)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    color: AppTheme.surface,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _messageController,
+                            onSubmitted: (_) => _sendMessage(),
+                            decoration: const InputDecoration(
+                              hintText: 'Escribe un mensaje...',
+                              border: OutlineInputBorder(),
+                            ),
                           ),
                         ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.send, color: AppTheme.primary),
-                        tooltip: 'Enviar',
-                        onPressed: _sendMessage,
-                      ),
-                    ],
+                        IconButton(
+                          icon: const Icon(Icons.send, color: AppTheme.primary),
+                          tooltip: 'Enviar',
+                          onPressed: _sendMessage,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
               ],
             ),
           ),

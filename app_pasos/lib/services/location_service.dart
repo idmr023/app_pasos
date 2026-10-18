@@ -49,35 +49,14 @@ class LocationService {
     await _checkAndRequestPermissions();
     _isTracking = true;
 
-    // 1) Posición conocida previa (instantánea) para que la UI muestre datos
-    //    de inmediato mientras se obtiene un fix real.
-    try {
-      final last = await Geolocator.getLastKnownPosition();
-      if (last != null) {
-        _currentPosition = last;
-        yield last;
-      }
-    } catch (_) {}
-
-    // 2) Intento de fix actual con timeout: si no responde en 8s no bloqueamos
-    //    el arranque; el stream periódico de abajo seguirá entregando datos.
-    try {
-      final current = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      ).timeout(const Duration(seconds: 8));
-      _currentPosition = current;
-      yield current;
-    } catch (_) {}
-
-    // 3) Stream periódico de ubicaciones (siempre arranca, haya o no fix previo)
+    // No emitimos getLastKnownPosition: puede ser antiguo y producir un
+    // salto falso al calcular la distancia, especialmente al volver a la app.
     final locationSettings =
         defaultTargetPlatform == TargetPlatform.android
             ? AndroidSettings(
-              accuracy: LocationAccuracy.high,
+              accuracy: LocationAccuracy.bestForNavigation,
               distanceFilter: _distanceFilterMeters,
-              intervalDuration: const Duration(seconds: 5),
+              intervalDuration: const Duration(seconds: 3),
               foregroundNotificationConfig: const ForegroundNotificationConfig(
                 notificationTitle: 'App Pasos está registrando tu carrera',
                 notificationText:
@@ -89,10 +68,21 @@ class LocationService {
               ),
             )
             : const LocationSettings(
-              accuracy: LocationAccuracy.high,
+              accuracy: LocationAccuracy.bestForNavigation,
               distanceFilter: _distanceFilterMeters,
             );
 
+    // Intento de fix actual con timeout: si no responde en 8s no bloqueamos
+    // el arranque; el stream periódico de abajo seguirá entregando datos.
+    try {
+      final current = await Geolocator.getCurrentPosition(
+        locationSettings: locationSettings,
+      ).timeout(const Duration(seconds: 8));
+      _currentPosition = current;
+      yield current;
+    } catch (_) {}
+
+    // Stream periódico de ubicaciones.
     final stream = Geolocator.getPositionStream(
       locationSettings: locationSettings,
     );
