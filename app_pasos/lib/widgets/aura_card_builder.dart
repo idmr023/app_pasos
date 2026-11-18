@@ -1,9 +1,12 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:latlong2/latlong.dart';
+import '../../models/cover_style.dart';
 import '../../models/route.dart';
 import '../../models/route_card_template.dart';
 import '../../widgets/aura_card_composer.dart';
+import 'aura_cover_templates.dart';
 
 /// MOLDE 1: "El Cartógrafo" — pintado 100% por [AuraCardPainter].
 class CartografoTemplateWidget extends StatelessWidget {
@@ -461,6 +464,52 @@ class AuraData {
     this.routeTexture,
   });
 
+  /// Construye los datos desde una carrera finalizada (tracking en vivo u
+  /// otra fuente sin `UserRoute`). [pace] en formato `m:ss` (sin "/km");
+  /// si es null se calcula con distancia y duración.
+  factory AuraData.fromRun({
+    required double distanceKm,
+    required Duration duration,
+    String? pace,
+    List<LatLng> routePoints = const [],
+    String title = 'Mi carrera',
+    DateTime? date,
+    int calories = 0,
+    int elevationGain = 0,
+    int heartRate = 0,
+  }) {
+    final secs = duration.inSeconds;
+    final computedPace = distanceKm > 0 && secs > 0
+        ? AuraCardComposer.formatPace(secs / distanceKm)
+        : '--';
+    return AuraData(
+      title: title,
+      distanceKm: distanceKm,
+      pace: (pace == null || pace.trim().isEmpty) ? computedPace : pace.replaceAll('/km', '').trim(),
+      duration: AuraCardComposer.formatDuration(secs),
+      elevationGain: elevationGain,
+      calories: calories,
+      heartRate: heartRate,
+      date: date ?? DateTime.now(),
+      coordinates: [for (final p in routePoints) Coordinate(lat: p.latitude, lng: p.longitude)],
+    );
+  }
+
+  AuraData copyWith({ui.Image? routeTexture}) {
+    return AuraData(
+      title: title,
+      distanceKm: distanceKm,
+      pace: pace,
+      duration: duration,
+      elevationGain: elevationGain,
+      calories: calories,
+      heartRate: heartRate,
+      date: date,
+      coordinates: coordinates,
+      routeTexture: routeTexture ?? this.routeTexture,
+    );
+  }
+
   Map<String, dynamic> toStatsMap() {
     return {
       'title': title,
@@ -482,12 +531,21 @@ class AuraCardBuilder extends StatelessWidget {
   final AuraMetricsConfig metricsConfig;
   final ui.Image? mapImage;
 
+  /// Personalización (foto, acento, fuente, título, stickers). Las plantillas
+  /// clásicas solo usan la foto pequeña y los stickers.
+  final CoverStyle style;
+
+  /// Si se pasa, los stickers se pueden arrastrar sobre la card.
+  final void Function(int index, Alignment alignment)? onStickerMoved;
+
   const AuraCardBuilder({
     super.key,
     required this.templateType,
     required this.data,
     required this.metricsConfig,
     this.mapImage,
+    this.style = const CoverStyle(),
+    this.onStickerMoved,
   });
 
   @override
@@ -497,7 +555,18 @@ class AuraCardBuilder extends StatelessWidget {
       aspectRatio: 9 / 16,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(20),
-        child: _buildTemplate(),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _buildTemplate(),
+            if (style.insetBytes != null || style.stickers.isNotEmpty)
+              CoverOverlays(
+                style: style,
+                accent: style.accent ?? templateType.accent,
+                onStickerMoved: onStickerMoved,
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -514,6 +583,15 @@ class AuraCardBuilder extends StatelessWidget {
         return CyberHudTemplateWidget(data: data, config: metricsConfig, mapImage: mapImage);
       case TemplateType.timeline:
         return TimelineTemplateWidget(data: data, config: metricsConfig, mapImage: mapImage);
+      case TemplateType.revista:
+      case TemplateType.neonNocturno:
+      case TemplateType.minimal:
+      case TemplateType.polaroid:
+      case TemplateType.podio:
+      case TemplateType.dorsal:
+      case TemplateType.fotoMapa:
+      case TemplateType.atardecer:
+        return AuraCoverTemplate(type: templateType, data: data, config: metricsConfig, style: style);
     }
   }
 }

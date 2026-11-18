@@ -4,6 +4,83 @@ const Workout = require('../models/Workout');
 const Routine = require('../models/Routine');
 const PersonalRecord = require('../models/PersonalRecord');
 const Exercise = require('../models/Exercise');
+const StepEntry = require('../models/StepEntry');
+const Challenge = require('../models/Challenge');
+const TrackingSession = require('../models/TrackingSession');
+const GameScore = require('../models/GameScore');
+
+function startOfDay(d = new Date()) {
+  const s = new Date(d);
+  s.setHours(0, 0, 0, 0);
+  return s;
+}
+
+/**
+ * Contexto "de hoy" para que el coach hable de la vida real del usuario:
+ * pasos de hoy/semana, retos activos (marcador vs rival), carreras en vivo
+ * recientes y Sprint. Los mismos pasos pueden estar registrados en varios
+ * retos el mismo día, así que por día se toma el máximo (no la suma).
+ */
+async function buildDailyContext(userId) {
+  const parts = [];
+  const today = startOfDay();
+  const weekAgo = new Date(today.getTime() - 6 * 24 * 3600 * 1000);
+
+  const perDay = await StepEntry.aggregate([
+    { $match: { user: userId, date: { $gte: weekAgo } } },
+    {
+      $group: {
+        _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
+        steps: { $max: '$steps' },
+      },
+    },
+    { $sort: { _id: 1 } },
+  ]);
+  const todayKey = today.toISOString().slice(0, 10);
+  const todaySteps = perDay.find(d => d._id === todayKey)?.steps || 0;
+  const weekSteps = perDay.reduce((a, d) => a + d.steps, 0);
+  parts.push(`PASOS: hoy ${todaySteps.toLocaleString('es-MX')} | últimos 7 días ${weekSteps.toLocaleString('es-MX')} (${perDay.length} días con registro)`);
+
+  const challenges = await Challenge.find({
+    status: 'active',
+    $or: [{ creator: userId }, { opponent: userId }],
+  })
+    .populate('creator opponent', 'displayName username')
+    .limit(5)
+    .lean();
+  if (challenges.length > 0) {
+    const lines = [];
+    for (const ch of challenges) {
+      const totals = await StepEntry.aggregate([
+        { $match: { challenge: ch._id } },
+        { $group: { _id: '$user', steps: { $sum: '$steps' } } },
+      ]);
+      const mine = totals.find(t => String(t._id) === String(userId))?.steps || 0;
+      const rival = String(ch.creator?._id) === String(userId) ? ch.opponent : ch.creator;
+      const theirs = totals.find(t => String(t._id) === String(rival?._id))?.steps || 0;
+      const daysLeft = ch.endDate ? Math.max(0, Math.ceil((new Date(ch.endDate) - Date.now()) / 86400000)) : '?';
+      const diff = mine - theirs;
+      lines.push(`- vs ${rival?.displayName || rival?.username || 'rival'}: tú ${mine} vs ${theirs} (${diff >= 0 ? `ganas por ${diff}` : `te faltan ${-diff} para empatar`}), quedan ${daysLeft} días`);
+    }
+    parts.push(`RETOS ACTIVOS:\n${lines.join('\n')}`);
+  }
+
+  const runs = await TrackingSession.find({ runner: userId, status: 'completed' })
+    .sort({ endedAt: -1 })
+    .limit(3)
+    .select('totalDistance avgPace endedAt')
+    .lean();
+  if (runs.length > 0) {
+    parts.push('CARRERAS RECIENTES:\n' + runs.map(r =>
+      `- ${Number(r.totalDistance || 0).toFixed(2)} km, ritmo ${r.avgPace ? `${Math.floor(r.avgPace)}:${String(Math.round((r.avgPace % 1) * 60)).padStart(2, '0')}/km` : 'n/d'} (${r.endedAt ? new Date(r.endedAt).toLocaleDateString('es-MX') : ''})`
+    ).join('\n'));
+  }
+
+  const best = await GameScore.findOne({ user: userId }).sort({ score: -1 }).select('score level').lean();
+  if (best) parts.push(`JUEGO SPRINT: mejor puntaje ${best.score} (nivel ${best.level}). 2,000 pasos = 1 intento.`);
+
+  return parts.join('\n\n');
+}
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -16,8 +93,15 @@ const _responseCache = new Map();
 const geminiBreaker = new CircuitBreaker(async ({ model, history, systemPrompt, lastMessage }) => {
   const chat = model.startChat({
     history,
-    systemInstruction: { parts: [{ text: systemPrompt }] },
-    generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
+    systemInstruction: { role: 'system', parts: [{ text: systemPrompt }] },
+    generationConfig: {
+      temperature: 0.7,
+      // gemini-2.5-flash gasta tokens de "thinking" dentro de maxOutputTokens:
+      // con 1024 y thinking activo la respuesta llegaba vacía. Se desactiva el
+      // thinking y se sube el límite.
+      maxOutputTokens: 2048,
+      thinkingConfig: { thinkingBudget: 0 },
+    },
   });
   const result = await chat.sendMessage(lastMessage);
   return result.response.text();
@@ -28,9 +112,45 @@ const geminiBreaker = new CircuitBreaker(async ({ model, history, systemPrompt, 
   rollingCountTimeout: 60000,
   rollingCountBuckets: 6,
   name: 'gemini',
+  // Errores de petición (400/403: historial inválido, API key) no indican que
+  // Gemini esté saturado: no deben abrir el circuito.
+  errorFilter: (err) => [400, 401, 402, 403, 404].includes(err?.status),
 });
+// Sin fallback genérico: antes cualquier error (API key inválida, historial mal
+// formado) se convertía en "procesando muchas solicitudes" y ocultaba la causa.
 
-geminiBreaker.fallback(() => 'El asistente está procesando muchas solicitudes. Intenta en un minuto.');
+const BUSY_MESSAGE = 'El asistente está procesando muchas solicitudes. Intenta en un minuto.';
+
+class CoachUnavailableError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'CoachUnavailableError';
+  }
+}
+
+/**
+ * Gemini exige que el historial empiece con rol 'user' y alterne
+ * user/model. Al recortar con slice(-N) el historial podía empezar por
+ * 'model' y la API respondía 400 en cada mensaje.
+ */
+function sanitizeHistory(history) {
+  const clean = [];
+  for (const item of history) {
+    const text = item.parts?.[0]?.text?.trim();
+    if (!text) continue;
+    const last = clean[clean.length - 1];
+    if (last && last.role === item.role) {
+      last.parts[0].text += `\n${text}`;
+    } else {
+      clean.push({ role: item.role, parts: [{ text }] });
+    }
+  }
+  while (clean.length > 0 && clean[0].role !== 'user') clean.shift();
+  // El último mensaje (el actual) se envía aparte como 'user'; el historial
+  // debe terminar en 'model' para mantener la alternancia.
+  while (clean.length > 0 && clean[clean.length - 1].role !== 'model') clean.pop();
+  return clean;
+}
 
 function _normalize(text) {
   return text.toLowerCase().replace(/[^\w\s]/g, '').trim();
@@ -70,6 +190,14 @@ const goalLabels = {
 
 async function buildUserContext(userId) {
   const contextParts = [];
+
+  try {
+    const daily = await buildDailyContext(userId);
+    if (daily) contextParts.push(daily);
+  } catch (err) {
+    // Best-effort: un fallo del contexto diario no debe tumbar el chat.
+    console.error('[Coach] daily context error:', err.message);
+  }
 
   const recentWorkouts = await Workout.find({ user: userId })
     .sort({ date: -1 })
@@ -159,7 +287,8 @@ DATOS DEL USUARIO:
   prompt += `\n\nPERSONALIZACIÓN:
 - Usa los datos del usuario (nivel, racha, entrenamientos recientes, rutinas, marcas personales) para adaptar cada recomendación.
 - Si conoces su peso, altura y meta, úsalos para calcular IMC si es relevante y ajustar intensidad/recomendaciones.
-- Pregunta por equipo disponible, días de entrenamiento, lesiones, etc. para refinar aún más.`;
+- Pregunta por equipo disponible, días de entrenamiento, lesiones, etc. para refinar aún más.
+- Usa PASOS, RETOS ACTIVOS, CARRERAS RECIENTES y JUEGO SPRINT para dar consejos concretos del día. Ej.: "Te faltan 1,200 pasos para alcanzar a Carlos: una caminata de 12 min y lo pasas". Cuando sea útil, calcula minutos de caminata (~100 pasos/min).`;
 
   if (userContext) {
     prompt += `\n\nCONTEXTO DEL USUARIO:\n${userContext}`;
@@ -201,8 +330,12 @@ async function getCoachResponse(user, messages) {
   const cached = _checkCache(cacheKey);
   if (cached) return cached;
 
+  if (!process.env.GEMINI_API_KEY) {
+    throw new CoachUnavailableError('El Coach IA no está configurado en el servidor (falta GEMINI_API_KEY).');
+  }
+
   if (geminiBreaker.opened) {
-    return 'El asistente está procesando muchas solicitudes. Intenta en un minuto.';
+    return BUSY_MESSAGE;
   }
 
   const userContext = await buildUserContext(user._id);
@@ -221,26 +354,41 @@ async function getCoachResponse(user, messages) {
 
   const model = genAI.getGenerativeModel({ model: CHAT_MODEL });
 
-  const history = messages.slice(-MAX_HISTORY, -1).map(m => ({
+  const history = sanitizeHistory(messages.slice(-MAX_HISTORY, -1).map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }],
-  }));
+    parts: [{ text: m.content || '' }],
+  })));
 
+  let reply;
   try {
-    const reply = await geminiBreaker.fire({ model, history, systemPrompt, lastMessage });
-    if (reply && reply.length >= 10) {
-      _setCache(lastMessage.trim(), reply);
-    }
-    return reply;
+    reply = await geminiBreaker.fire({ model, history, systemPrompt, lastMessage });
   } catch (err) {
-    if (geminiBreaker.opened) {
-      return 'El asistente está procesando muchas solicitudes. Intenta en un minuto.';
+    console.error('[Coach] Gemini error:', err.status || '', err.message);
+    if (geminiBreaker.opened || err.code === 'ETIMEDOUT' || err.code === 'EOPENBREAKER') {
+      return BUSY_MESSAGE;
     }
     if (err.status === 429 || (err.message && err.message.includes('429'))) {
-      return 'El asistente está procesando muchas solicitudes. Intenta en un minuto.';
+      return BUSY_MESSAGE;
     }
-    throw err;
+    if (err.status === 400 && /api key/i.test(err.message || '')) {
+      throw new CoachUnavailableError('La API key de Gemini del servidor no es válida.');
+    }
+    if (err.status === 402) {
+      throw new CoachUnavailableError('El Coach IA está sin créditos de Gemini. El administrador debe recargar la cuenta de Google AI.');
+    }
+    if (err.status === 403) {
+      throw new CoachUnavailableError('La API key de Gemini no tiene permiso para este modelo.');
+    }
+    throw new CoachUnavailableError('El Coach IA no pudo responder. Intenta de nuevo.');
   }
+
+  if (!reply || !reply.trim()) {
+    throw new CoachUnavailableError('El Coach IA devolvió una respuesta vacía. Reformula tu pregunta.');
+  }
+  if (reply.length >= 10) {
+    _setCache(cacheKey, reply);
+  }
+  return reply;
 }
 
-module.exports = { getCoachResponse };
+module.exports = { getCoachResponse, sanitizeHistory, buildDailyContext, CoachUnavailableError };

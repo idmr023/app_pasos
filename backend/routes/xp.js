@@ -8,7 +8,7 @@ const router = express.Router();
 
 router.get('/', auth, async (req, res) => {
   try {
-    const { totalSteps, stepsXp, gymXp, totalXp, level } = await getUserXpData(req.user);
+    const { totalSteps, stepsXp, gymXp, gameXp, totalXp, level } = await getUserXpData(req.user);
     const progress = progressToNext(totalXp, level);
     const claimed = await UserReward.find({ user: req.user._id });
     const claimedRewards = claimed.map(c => c.reward);
@@ -23,6 +23,7 @@ router.get('/', auth, async (req, res) => {
       xp: totalXp,
       stepsXp,
       gymXp,
+      gameXp,
       totalSteps,
       level,
       title: req.user.title || '',

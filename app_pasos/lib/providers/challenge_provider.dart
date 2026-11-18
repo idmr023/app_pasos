@@ -27,13 +27,13 @@ class ChallengeProvider extends ChangeNotifier {
     _service = ChallengeService(token);
   }
 
-  Future<bool> createChallenge({int duration = 30}) async {
+  Future<bool> createChallenge({int duration = 30, int wager = 0}) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      final challenge = await _service!.createChallenge(duration: duration);
+      final challenge = await _service!.createChallenge(duration: duration, wager: wager);
       _currentChallenge = challenge;
       _challenges.insert(0, challenge);
       _isLoading = false;

@@ -24,6 +24,12 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>La cámara se usa para tomar una foto y usarla como fondo de la portada de tu carrera.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Tu galería se usa para elegir fotos de fondo para las portadas de tus carreras. Las fotos no se suben a ningún servidor.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Se necesita permiso para guardar en tu galería las portadas que crees.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Tu ubicación se usa para trackear tu recorrido en vivo y mostrar los kilómetros de la carrera.</string>
 	<key>UILaunchStoryboardName</key>

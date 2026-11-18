@@ -10,6 +10,9 @@ import 'providers/gym_provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/route_provider.dart';
 import 'providers/tracking_provider.dart';
+import 'providers/game_provider.dart';
+import 'providers/wallet_provider.dart';
+import 'providers/league_provider.dart';
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
@@ -48,6 +51,9 @@ class AppPasosApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ChatProvider()),
         ChangeNotifierProvider(create: (_) => RouteProvider()),
         ChangeNotifierProvider(create: (_) => TrackingProvider()),
+        ChangeNotifierProvider(create: (_) => GameProvider()),
+        ChangeNotifierProvider(create: (_) => WalletProvider()),
+        ChangeNotifierProvider(create: (_) => LeagueProvider()),
       ],
       child: MaterialApp(
         title: 'App Pasos',

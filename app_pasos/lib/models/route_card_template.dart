@@ -6,6 +6,16 @@ enum TemplateType {
   distanciaRey,
   cyberHud,
   timeline,
+  // Portadas (v4): construidas con widgets en aura_cover_templates.dart,
+  // soportan foto de fondo, color de acento, fuente y título personalizados.
+  revista,
+  neonNocturno,
+  minimal,
+  polaroid,
+  podio,
+  dorsal,
+  fotoMapa,
+  atardecer,
 }
 
 extension TemplateTypeX on TemplateType {
@@ -16,6 +26,14 @@ extension TemplateTypeX on TemplateType {
       case TemplateType.distanciaRey: return 'distancia_rey';
       case TemplateType.cyberHud: return 'cyber_hud';
       case TemplateType.timeline: return 'timeline';
+      case TemplateType.revista: return 'revista';
+      case TemplateType.neonNocturno: return 'neon_nocturno';
+      case TemplateType.minimal: return 'minimal';
+      case TemplateType.polaroid: return 'polaroid';
+      case TemplateType.podio: return 'podio';
+      case TemplateType.dorsal: return 'dorsal';
+      case TemplateType.fotoMapa: return 'foto_mapa';
+      case TemplateType.atardecer: return 'atardecer';
     }
   }
 
@@ -26,6 +44,14 @@ extension TemplateTypeX on TemplateType {
       case TemplateType.distanciaRey: return 'Distancia Rey';
       case TemplateType.cyberHud: return 'Cyber HUD';
       case TemplateType.timeline: return 'Línea de Tiempo';
+      case TemplateType.revista: return 'Portada Revista';
+      case TemplateType.neonNocturno: return 'Neón Nocturno';
+      case TemplateType.minimal: return 'Minimal';
+      case TemplateType.polaroid: return 'Polaroid';
+      case TemplateType.podio: return 'Podio';
+      case TemplateType.dorsal: return 'Dorsal Retro';
+      case TemplateType.fotoMapa: return 'Foto + Mapa';
+      case TemplateType.atardecer: return 'Atardecer';
     }
   }
 
@@ -36,6 +62,14 @@ extension TemplateTypeX on TemplateType {
       case TemplateType.distanciaRey: return 'Río de neón dentro del KM';
       case TemplateType.cyberHud: return 'Interfaz Sci-Fi con Crosshairs';
       case TemplateType.timeline: return 'Storytelling e hitos de carrera';
+      case TemplateType.revista: return 'Tu carrera en portada de revista';
+      case TemplateType.neonNocturno: return 'Ruta brillante para salidas de noche';
+      case TemplateType.minimal: return 'Solo números, tipografía limpia';
+      case TemplateType.polaroid: return 'Foto instantánea con nota escrita';
+      case TemplateType.podio: return 'Medalla de oro y podio de stats';
+      case TemplateType.dorsal: return 'Número de carrera vintage';
+      case TemplateType.fotoMapa: return 'Mitad foto, mitad mapa';
+      case TemplateType.atardecer: return 'Degradado retro con sol';
     }
   }
 
@@ -46,8 +80,39 @@ extension TemplateTypeX on TemplateType {
       case TemplateType.distanciaRey: return Icons.workspace_premium;
       case TemplateType.cyberHud: return Icons.radar;
       case TemplateType.timeline: return Icons.timeline;
+      case TemplateType.revista: return Icons.menu_book;
+      case TemplateType.neonNocturno: return Icons.nightlife;
+      case TemplateType.minimal: return Icons.notes;
+      case TemplateType.polaroid: return Icons.photo_camera_back;
+      case TemplateType.podio: return Icons.military_tech;
+      case TemplateType.dorsal: return Icons.confirmation_number;
+      case TemplateType.fotoMapa: return Icons.splitscreen;
+      case TemplateType.atardecer: return Icons.wb_twilight;
     }
   }
+
+  /// Color de acento por defecto (usado en tarjetas de la grilla y como
+  /// acento base de las portadas cuando el usuario no elige uno).
+  Color get accent {
+    switch (this) {
+      case TemplateType.cartografo: return const Color(0xFF00D4FF);
+      case TemplateType.diario: return const Color(0xFFF3F4F6);
+      case TemplateType.distanciaRey: return const Color(0xFF00F5D4);
+      case TemplateType.cyberHud: return const Color(0xFF00FF66);
+      case TemplateType.timeline: return const Color(0xFF38BDF8);
+      case TemplateType.revista: return const Color(0xFFFF3B30);
+      case TemplateType.neonNocturno: return const Color(0xFFFF2BD6);
+      case TemplateType.minimal: return const Color(0xFF111111);
+      case TemplateType.polaroid: return const Color(0xFFFFB703);
+      case TemplateType.podio: return const Color(0xFFFFC94A);
+      case TemplateType.dorsal: return const Color(0xFFE63946);
+      case TemplateType.fotoMapa: return const Color(0xFF00E5A0);
+      case TemplateType.atardecer: return const Color(0xFFFF7A45);
+    }
+  }
+
+  /// true para las portadas v4 (soportan foto de fondo, acento, fuente y título).
+  bool get isCover => index >= TemplateType.revista.index;
 }
 
 class AuraMetricsConfig {

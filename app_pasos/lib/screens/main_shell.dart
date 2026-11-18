@@ -38,11 +38,28 @@ class MainShellScope extends InheritedWidget {
       goToTab != oldWidget.goToTab;
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends State<MainShell>
+    with SingleTickerProviderStateMixin {
   int _currentIndex = 0;
 
+  // Fundido corto al cambiar de tab. Se anima el IndexedStack completo con
+  // FadeTransition (no reconstruye hijos) para conservar el estado de cada tab.
+  late final AnimationController _fade = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 260),
+    value: 1,
+  );
+
   void _goToTab(int index) {
+    if (index == _currentIndex) return;
     setState(() => _currentIndex = index);
+    _fade.forward(from: 0.35);
+  }
+
+  @override
+  void dispose() {
+    _fade.dispose();
+    super.dispose();
   }
 
   final List<Widget> _screens = const [
@@ -94,9 +111,12 @@ class _MainShellState extends State<MainShell> {
             ),
           ),
           child: SafeArea(
-            child: IndexedStack(
-              index: _currentIndex,
-              children: _screens,
+            child: FadeTransition(
+              opacity: CurvedAnimation(parent: _fade, curve: Curves.easeOut),
+              child: IndexedStack(
+                index: _currentIndex,
+                children: _screens,
+              ),
             ),
           ),
         ),
@@ -109,26 +129,66 @@ class _MainShellState extends State<MainShell> {
               ),
             ),
           ),
-          child: BottomNavigationBar(
-            currentIndex: _currentIndex,
-            onTap: _goToTab,
-            backgroundColor: AppTheme.surface.withValues(alpha: 0.95),
-            selectedItemColor: AppTheme.primary,
-            unselectedItemColor: AppTheme.darkGrey,
-            type: BottomNavigationBarType.fixed,
-            selectedLabelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
-            unselectedLabelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
-            items: const [
-              BottomNavigationBarItem(icon: Icon(Icons.directions_run), label: 'Pasos'),
-              BottomNavigationBarItem(icon: Icon(Icons.fitness_center), label: 'Gimnasio'),
-               BottomNavigationBarItem(
+          child: NavigationBarTheme(
+            data: NavigationBarThemeData(
+              backgroundColor: AppTheme.surface.withValues(alpha: 0.97),
+              indicatorColor: AppTheme.primary.withValues(alpha: 0.22),
+              height: 66,
+              labelTextStyle: WidgetStateProperty.resolveWith(
+                (states) => TextStyle(
+                  fontSize: 11,
+                  fontWeight:
+                      states.contains(WidgetState.selected)
+                          ? FontWeight.w800
+                          : FontWeight.w500,
+                  color:
+                      states.contains(WidgetState.selected)
+                          ? AppTheme.primary
+                          : AppTheme.darkGrey,
+                ),
+              ),
+              iconTheme: WidgetStateProperty.resolveWith(
+                (states) => IconThemeData(
+                  color:
+                      states.contains(WidgetState.selected)
+                          ? AppTheme.primary
+                          : AppTheme.darkGrey,
+                ),
+              ),
+            ),
+            child: NavigationBar(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: _goToTab,
+              animationDuration: const Duration(milliseconds: 400),
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.directions_run_outlined),
+                  selectedIcon: Icon(Icons.directions_run),
+                  label: 'Pasos',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.fitness_center_outlined),
+                  selectedIcon: Icon(Icons.fitness_center),
+                  label: 'Gimnasio',
+                ),
+                NavigationDestination(
                   key: ValueKey('bottomNavTracking'),
-                  icon: Icon(Icons.live_tv),
+                  icon: Icon(Icons.live_tv_outlined),
+                  selectedIcon: Icon(Icons.live_tv),
                   label: 'Tracking',
                 ),
-              BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline), label: 'Chat'),
-              BottomNavigationBarItem(icon: Icon(Icons.menu), label: 'Menú'),
-            ],
+                NavigationDestination(
+                  icon: Icon(Icons.chat_bubble_outline),
+                  selectedIcon: Icon(Icons.chat_bubble),
+                  label: 'Coach',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.explore_outlined),
+                  selectedIcon: Icon(Icons.explore),
+                  label: 'Explorar',
+                ),
+              ],
+            ),
           ),
         ),
       ),

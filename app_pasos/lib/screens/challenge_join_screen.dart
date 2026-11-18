@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/theme.dart';
 import '../providers/challenge_provider.dart';
+import '../providers/wallet_provider.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/neon_button.dart';
+import '../widgets/wallet_widgets.dart';
 
 class ChallengeJoinScreen extends StatefulWidget {
   const ChallengeJoinScreen({super.key});
@@ -14,6 +16,14 @@ class ChallengeJoinScreen extends StatefulWidget {
 
 class _ChallengeJoinScreenState extends State<ChallengeJoinScreen> {
   final _codeController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ensureWalletLoaded(context);
+    });
+  }
 
   @override
   void dispose() {
@@ -31,12 +41,23 @@ class _ChallengeJoinScreenState extends State<ChallengeJoinScreen> {
     }
 
     final challengeProvider = context.read<ChallengeProvider>();
+    final wallet = context.read<WalletProvider>();
+    final messenger = ScaffoldMessenger.of(context);
     final success = await challengeProvider.joinChallenge(code);
 
     if (!mounted) return;
 
     if (success) {
-      Navigator.pushReplacementNamed(context, '/challenge-room', arguments: challengeProvider.currentChallenge!.id);
+      final joined = challengeProvider.currentChallenge!;
+      if (joined.hasWager) {
+        if (joined.balanceAfter != null) wallet.setBalance(joined.balanceAfter!);
+        wallet.refreshBalance();
+        messenger.showSnackBar(SnackBar(
+          content: Text('Apostaste ${formatPasos(joined.wager)} pasos. ¡El ganador se lleva ${formatPasos(joined.pot)}!'),
+          backgroundColor: AppTheme.secondary,
+        ));
+      }
+      Navigator.pushReplacementNamed(context, '/challenge-room', arguments: joined.id);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(challengeProvider.error ?? 'Error al unirse'), backgroundColor: AppTheme.error),
@@ -105,7 +126,16 @@ class _ChallengeJoinScreenState extends State<ChallengeJoinScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 16),
+                      Consumer<WalletProvider>(
+                        builder: (context, wallet, _) => Text(
+                          'Si el reto tiene apuesta, se descontará de tu saldo'
+                          '${wallet.hasLoaded ? ' (${formatPasos(wallet.balance)} pasos)' : ''}.',
+                          textAlign: TextAlign.center,
+                          style: AppTheme.bodySmall.copyWith(color: AppTheme.gold),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
                       NeonButton(
                         label: 'UNIRSE AL RETO',
                         icon: Icons.login,

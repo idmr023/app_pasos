@@ -1,3 +1,5 @@
+> **OBSOLETO** — Este diseño (nave + voz + Flame) no se implementó. El minijuego construido es **Sprint**: ver [`GAME.md`](GAME.md). Se conserva solo como referencia histórica; los endpoints `/api/game` siguen siendo compatibles con los campos de Orbiter (`asteroidsDodged`).
+
 # ORBITER — Juego de Nave con Fusión de Fitness
 
 Juego 2D de naves espaciales con control de voz, integrado al sistema de pasos y XP de la app.

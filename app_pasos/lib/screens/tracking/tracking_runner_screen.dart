@@ -7,6 +7,12 @@ import 'package:provider/provider.dart';
 import 'package:app_pasos/config/api.dart';
 import 'package:app_pasos/config/theme.dart';
 import 'package:app_pasos/providers/tracking_provider.dart';
+import 'package:app_pasos/widgets/tracking_notice_listener.dart';
+import 'package:app_pasos/widgets/power_up_bar.dart';
+import 'package:app_pasos/widgets/power_up_burst_overlay.dart';
+import 'package:app_pasos/models/power_up.dart';
+import 'package:app_pasos/screens/share_aura/cover_editor_screen.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:share_plus/share_plus.dart';
 
 class TrackingRunnerScreen extends StatefulWidget {
@@ -29,10 +35,13 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
   final TextEditingController _messageController = TextEditingController();
   String? _startError;
   bool _starting = true;
+  // Referencia cacheada: en dispose() no se puede usar context.read.
+  late final TrackingProvider _tracking;
 
   @override
   void initState() {
     super.initState();
+    _tracking = context.read<TrackingProvider>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _startTracking();
     });
@@ -111,6 +120,15 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
     provider.stopTracking();
     final localDistance = provider.currentDistance;
     final localElapsed = provider.elapsedTime;
+    final routePoints = List<LatLng>.of(provider.routePoints);
+    // Fallback del recap de ánimos si el cierre en backend falla.
+    final localCheers = <String, dynamic>{
+      'total': provider.cheersTotal,
+      'supporters': provider.cheersSupporters,
+      'topSupporters': [
+        if (provider.topSupporter != null) provider.topSupporter,
+      ],
+    };
 
     // 2) Cerrar la sesión en el backend (persiste totalDistance/avgSpeed/...)
     //    Si falla, el fallback es el timer de 30s del servidor al desconectar.
@@ -146,6 +164,11 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
         elapsed: localElapsed,
         avgPace: avgPace,
         avgSpeed: avgSpeed,
+        routePoints: routePoints,
+        cheers:
+            serverStats?['cheers'] is Map
+                ? Map<String, dynamic>.from(serverStats!['cheers'] as Map)
+                : localCheers,
       );
     }
 
@@ -190,7 +213,10 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
       if (response.statusCode != 200) return null;
       final data = json.decode(response.body);
       final session = data['session'];
-      if (session is Map<String, dynamic>) return session;
+      if (session is Map<String, dynamic>) {
+        // El recap de ánimos viene junto a la sesión en la respuesta de /close.
+        return {...session, 'cheers': data['cheers']};
+      }
       return null;
     } catch (e) {
       debugPrint('[Tracking] Error cerrando sesión: $e');
@@ -203,8 +229,17 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
     required Duration elapsed,
     required double avgPace,
     required double avgSpeed,
+    List<LatLng> routePoints = const [],
+    Map<String, dynamic>? cheers,
   }) async {
     if (!mounted) return;
+    final cheersTotal = (cheers?['total'] as num?)?.toInt() ?? 0;
+    final cheersSupporters = (cheers?['supporters'] as num?)?.toInt() ?? 0;
+    final cheersTitle =
+        cheersTotal > 0
+            ? '🔥 $cheersTotal ${cheersTotal == 1 ? 'ánimo' : 'ánimos'} de '
+                '$cheersSupporters ${cheersSupporters == 1 ? 'amigo' : 'amigos'}'
+            : null;
     await showDialog(
       context: context,
       barrierDismissible: false,
@@ -216,36 +251,42 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
             textAlign: TextAlign.center,
             style: TextStyle(fontWeight: FontWeight.bold),
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.emoji_events, size: 56, color: AppTheme.primary),
-              const SizedBox(height: 16),
-              Text(
-                '${distanceKm.toStringAsFixed(2)} km',
-                style: const TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.emoji_events, size: 56, color: AppTheme.primary),
+                const SizedBox(height: 16),
+                Text(
+                  '${distanceKm.toStringAsFixed(2)} km',
+                  style: const TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Tiempo: ${_formatDuration(elapsed)}',
-                style: AppTheme.bodyMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Ritmo: ${avgPace > 0 ? '${_formatPace(avgPace)} /km' : '--'}',
-                style: AppTheme.bodyMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Velocidad media: '
-                '${avgSpeed > 0 ? '${avgSpeed.toStringAsFixed(1)} km/h' : '--'}',
-                style: AppTheme.bodyMedium,
-              ),
-            ],
+                const SizedBox(height: 12),
+                Text(
+                  'Tiempo: ${_formatDuration(elapsed)}',
+                  style: AppTheme.bodyMedium,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Ritmo: ${avgPace > 0 ? '${_formatPace(avgPace)} /km' : '--'}',
+                  style: AppTheme.bodyMedium,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Velocidad media: '
+                  '${avgSpeed > 0 ? '${avgSpeed.toStringAsFixed(1)} km/h' : '--'}',
+                  style: AppTheme.bodyMedium,
+                ),
+                if (cheersTotal > 0) ...[
+                  const SizedBox(height: 16),
+                  _CheersRecap(cheers: cheers!, title: cheersTitle!),
+                ],
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -256,10 +297,30 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
                   '¡Terminé mi carrera! 🏃‍♂️ '
                   '${distanceKm.toStringAsFixed(2)} km en '
                   '${_formatDuration(elapsed)}'
-                  '${paceText.isNotEmpty ? ' ($paceText)' : ''}',
+                  '${paceText.isNotEmpty ? ' ($paceText)' : ''}'
+                  '${cheersTitle != null ? ' con $cheersTitle' : ''}',
                 );
               },
               child: const Text('Compartir'),
+            ),
+            TextButton.icon(
+              icon: const Icon(Icons.auto_awesome, size: 18),
+              label: const Text('Crear portada'),
+              onPressed: () {
+                Navigator.of(dialogContext).push(
+                  MaterialPageRoute(
+                    builder:
+                        (_) => CoverEditorScreen.forRun(
+                          distanceKm: distanceKm,
+                          duration: elapsed,
+                          pace: avgPace > 0 ? _formatPace(avgPace) : null,
+                          routePoints: routePoints,
+                          title: cheersTitle ?? 'Carrera en vivo',
+                          date: DateTime.now(),
+                        ),
+                  ),
+                );
+              },
             ),
             FilledButton(
               key: const ValueKey('runnerSummaryDone'),
@@ -281,7 +342,7 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
     _messageController.dispose();
     // Asegurar liberación de socket/GPS si la pantalla se destruye por
     // cualquier vía (error, navegación externa, etc.). leaveRoom es idempotente.
-    context.read<TrackingProvider>().leaveRoom();
+    _tracking.leaveRoom(notify: false);
     super.dispose();
   }
 
@@ -394,31 +455,16 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
 
     return Consumer<TrackingProvider>(
       builder: (context, provider, _) {
-        if (provider.error != null) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.wifi_off, size: 64, color: AppTheme.error),
-                  const SizedBox(height: 16),
-                  Text(
-                    provider.error!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                  const SizedBox(height: 24),
-                  TextButton(
-                    onPressed: _backToHub,
-                    child: const Text('Volver al Hub'),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-        return _buildRunnerBody(provider);
+        // Los avisos (GPS, chat, reconexión) se muestran como SnackBar sin
+        // ocultar el panel: el tracking sigue grabando aunque haya avisos.
+        return TrackingNoticeListener(
+          provider: provider,
+          // Ráfaga animada por cada power-up de los espectadores.
+          child: PowerUpBurstOverlay(
+            events: provider.powerUpEvents,
+            child: _buildRunnerBody(provider),
+          ),
+        );
       },
     );
   }
@@ -567,6 +613,15 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
             ],
           ),
         ),
+        // Energía del público (ánimos recibidos en vivo)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: CrowdEnergyChip(
+            total: provider.cheersTotal,
+            supporters: provider.cheersSupporters,
+            topSupporter: provider.topSupporter,
+          ),
+        ),
         // Chat
         Expanded(
           child: Container(
@@ -621,6 +676,18 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
                             itemCount: provider.messages.length,
                             itemBuilder: (context, index) {
                               final msg = provider.messages[index];
+                              if (msg['kind'] == 'powerUp') {
+                                return ListTile(
+                                  dense: true,
+                                  title: Text(
+                                    msg['message'] ?? '',
+                                    style: const TextStyle(
+                                      color: AppTheme.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                );
+                              }
                               return ListTile(
                                 title: Text(
                                   msg['senderName'] ?? 'Espectador',
@@ -665,6 +732,104 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
               letterSpacing: 0.5,
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Recap de ánimos para el resumen de fin de carrera: conteo por tipo, top
+/// supporters y algunos ánimos de voz.
+class _CheersRecap extends StatelessWidget {
+  final Map<String, dynamic> cheers;
+  final String title;
+
+  const _CheersRecap({required this.cheers, required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    final byType =
+        cheers['byType'] is Map
+            ? Map<String, dynamic>.from(cheers['byType'] as Map)
+            : const <String, dynamic>{};
+    final top =
+        (cheers['topSupporters'] is List ? cheers['topSupporters'] as List : [])
+            .whereType<Map>()
+            .take(3)
+            .toList();
+    final samples =
+        (cheers['samples'] is List ? cheers['samples'] as List : [])
+            .whereType<Map>()
+            .take(3)
+            .toList();
+    const medals = ['🥇', '🥈', '🥉'];
+
+    return Container(
+      key: const ValueKey('runnerCheersRecap'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.primary.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 15,
+            ),
+          ),
+          if (byType.values.any((v) => v is num && v > 0)) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 10,
+              runSpacing: 4,
+              children: [
+                for (final t in PowerUpType.all)
+                  if ((byType[t.id] as num? ?? 0) > 0)
+                    Text(
+                      '${t.emoji} ${byType[t.id]}',
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                    ),
+              ],
+            ),
+          ],
+          if (top.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            const Text(
+              'Top supporters',
+              style: TextStyle(
+                color: Colors.white54,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            for (var i = 0; i < top.length; i++)
+              Text(
+                '${medals[i]} ${top[i]['name'] ?? 'Alguien'} · ${top[i]['count']}',
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+              ),
+          ],
+          if (samples.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            for (final sample in samples)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Text(
+                  '🎙️ "${sample['text'] ?? ''}" — ${sample['senderName'] ?? ''}',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+          ],
         ],
       ),
     );
