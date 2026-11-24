@@ -1,7 +1,7 @@
 const express = require('express');
 const auth = require('../middleware/auth');
 const ChatConversation = require('../models/ChatConversation');
-const { getCoachResponse } = require('../services/chatService');
+const { getCoachResponse, CoachUnavailableError } = require('../services/chatService');
 
 const router = express.Router();
 
@@ -56,6 +56,9 @@ router.post('/', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('Chat error:', error.message);
+    if (error instanceof CoachUnavailableError) {
+      return res.status(503).json({ error: error.message });
+    }
     res.status(500).json({ error: 'Error al procesar el mensaje' });
   }
 });

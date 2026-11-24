@@ -89,8 +89,7 @@ class AuraCardPainter extends CustomPainter {
       case TemplateType.timeline:
         _drawTimelineLayout(canvas, size);
         break;
-      case TemplateType.distanciaRey:
-      case TemplateType.cyberHud:
+      default:
         // Estos moldes se construyen con widgets propios, no con este painter.
         break;
     }

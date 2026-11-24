@@ -62,9 +62,10 @@ async function getUserXpData(user) {
   const totalSteps = await getTotalSteps(user._id);
   const stepsXp = xpFromSteps(totalSteps);
   const gymXp = user.gymXp || 0;
-  const totalXp = stepsXp + gymXp;
+  const gameXp = user.gameXp || 0;
+  const totalXp = stepsXp + gymXp + gameXp;
   const level = levelFromXp(totalXp);
-  return { totalSteps, stepsXp, gymXp, totalXp, level };
+  return { totalSteps, stepsXp, gymXp, gameXp, totalXp, level };
 }
 
 async function refreshUserLevel(user) {

@@ -16,14 +16,14 @@ class ChallengeService {
 
   ChallengeService(this.token);
 
-  Future<Challenge> createChallenge({int duration = 30}) async {
+  Future<Challenge> createChallenge({int duration = 30, int wager = 0}) async {
     final response = await http.post(
       Uri.parse('${ApiConfig.baseUrl}/challenges'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
-      body: jsonEncode({'duration': duration}),
+      body: jsonEncode({'duration': duration, if (wager > 0) 'wager': wager}),
     ).timeout(ApiConfig.timeout);
 
     final data = _parseJson(response);

@@ -34,6 +34,33 @@ const challengeSchema = new mongoose.Schema({
   },
   endDate: {
     type: Date
+  },
+  // Reto con apuesta (economía de pasos, ver docs/WALLET.md)
+  wager: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  // none: sin apuesta | open: apuestas en juego | paid: bote pagado al ganador
+  // | refunded: apuestas devueltas (empate o reto borrado)
+  wagerState: {
+    type: String,
+    enum: ['none', 'open', 'paid', 'refunded'],
+    default: 'none'
+  },
+  wagerWinner: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  wagerSettledAt: {
+    type: Date,
+    default: null
+  },
+  // Contador de uniones: cada apuesta del rival lleva una clave distinta
+  joinCount: {
+    type: Number,
+    default: 0
   }
 }, {
   timestamps: true

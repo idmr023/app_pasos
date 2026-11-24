@@ -3,6 +3,7 @@ const auth = require('../middleware/auth');
 const StepEntry = require('../models/StepEntry');
 const Challenge = require('../models/Challenge');
 const { xpFromSteps, levelFromXp, bestTitleForLevel, getTotalSteps } = require('../services/xpService');
+const { syncEarned } = require('../services/walletService');
 
 const router = express.Router();
 
@@ -63,8 +64,11 @@ router.post('/', auth, async (req, res) => {
       await entry.save();
     }
 
+    // Acredita los pasos al monedero (idempotente, no bloquea la respuesta).
+    syncEarned(req.user._id).catch(e => console.error('Wallet sync:', e.message));
+
     const totalSteps = await getTotalSteps(req.user._id);
-    const totalXp = xpFromSteps(totalSteps) + (req.user.gymXp || 0);
+    const totalXp = xpFromSteps(totalSteps) + (req.user.gymXp || 0) + (req.user.gameXp || 0);
     const newLevel = levelFromXp(totalXp);
     req.user.xp = totalXp;
     req.user.level = newLevel;

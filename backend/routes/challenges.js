@@ -3,8 +3,27 @@ const auth = require('../middleware/auth');
 const Challenge = require('../models/Challenge');
 const StepEntry = require('../models/StepEntry');
 const User = require('../models/User');
+const wallet = require('../services/walletService');
 
 const router = express.Router();
+
+// Preserva el saldo ganado antes de borrar StepEntry (ver docs/WALLET.md).
+async function syncParticipants(challenge) {
+  for (const u of [challenge.creator, challenge.opponent].filter(Boolean)) {
+    await wallet.syncEarned(u._id || u).catch(() => {});
+  }
+}
+
+async function settleIfNeeded(c) {
+  if (!c.wager || c.wager <= 0 || c.wagerSettledAt || c.status !== 'finished') return;
+  try {
+    await wallet.settleChallenge(c);
+    const fresh = await Challenge.findById(c._id, 'wagerState wagerWinner wagerSettledAt').lean();
+    if (fresh) Object.assign(c, fresh);
+  } catch (e) {
+    console.error('Liquidar apuesta:', e.message);
+  }
+}
 
 function generateCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -20,6 +39,12 @@ router.post('/', auth, async (req, res) => {
     const duration = req.body.duration || 30;
     if (![7, 14, 30].includes(duration)) {
       return res.status(400).json({ error: 'La duración debe ser 7, 14 o 30 días' });
+    }
+    let wager;
+    try {
+      wager = wallet.validateWager(req.body.wager);
+    } catch (e) {
+      return res.status(e.status || 400).json({ error: e.message });
     }
 
     let code;
@@ -39,9 +64,24 @@ router.post('/', auth, async (req, res) => {
       creator: req.userId,
       duration,
       startDate,
-      endDate
+      endDate,
+      wager,
+      wagerState: wager > 0 ? 'open' : 'none'
     });
     await challenge.save();
+
+    let balance;
+    if (wager > 0) {
+      try {
+        balance = (await wallet.stake(req.userId, challenge._id, wager, `stake:${challenge._id}:creator`)).balance;
+      } catch (e) {
+        await Challenge.findByIdAndDelete(challenge._id);
+        if (e instanceof wallet.WalletError) {
+          return res.status(e.status).json({ error: e.message, ...e.extra });
+        }
+        throw e;
+      }
+    }
 
     res.status(201).json({
       id: challenge._id,
@@ -49,7 +89,10 @@ router.post('/', auth, async (req, res) => {
       duration: challenge.duration,
       status: challenge.status,
       startDate: challenge.startDate,
-      endDate: challenge.endDate
+      endDate: challenge.endDate,
+      wager: challenge.wager,
+      wagerState: challenge.wagerState,
+      ...(balance !== undefined ? { balance } : {})
     });
   } catch (error) {
     res.status(500).json({ error: 'Error al crear reto' });
@@ -64,7 +107,7 @@ router.post('/join', auth, async (req, res) => {
     }
     const challenge = await Challenge.findOneAndUpdate(
       { code: code.toUpperCase(), opponent: null, status: { $ne: 'finished' } },
-      { $set: { opponent: req.userId, status: 'active' } },
+      { $set: { opponent: req.userId, status: 'active' }, $inc: { joinCount: 1 } },
       { new: true }
     );
 
@@ -72,10 +115,37 @@ router.post('/join', auth, async (req, res) => {
       return res.status(404).json({ error: 'Código inválido o reto ya tiene oponente' });
     }
 
+    const revertJoin = () => Challenge.findOneAndUpdate(
+      { _id: challenge._id, opponent: req.userId },
+      { $set: { opponent: null, status: 'waiting' } }
+    );
+
     if (challenge.creator.toString() === req.userId.toString()) {
       // Revertir el update atómico
-      await Challenge.findByIdAndUpdate(challenge._id, { $set: { opponent: null, status: 'waiting' } });
+      await revertJoin();
       return res.status(400).json({ error: 'No puedes unirte a tu propio reto' });
+    }
+
+    let balance;
+    if (challenge.wager > 0) {
+      if (challenge.wagerState !== 'open') {
+        await revertJoin();
+        return res.status(400).json({ error: 'Este reto ya no admite apuestas' });
+      }
+      try {
+        const stakeKey = `stake:${challenge._id}:${req.userId}:${challenge.joinCount}`;
+        balance = (await wallet.stake(req.userId, challenge._id, challenge.wager, stakeKey)).balance;
+      } catch (e) {
+        await revertJoin();
+        if (e instanceof wallet.WalletError) {
+          return res.status(e.status).json({
+            error: `Este reto tiene una apuesta de ${wallet.formatSteps(challenge.wager)} pasos. ${e.message}`,
+            wager: challenge.wager,
+            ...e.extra
+          });
+        }
+        throw e;
+      }
     }
 
     const creator = await User.findById(challenge.creator);
@@ -85,6 +155,9 @@ router.post('/join', auth, async (req, res) => {
       code: challenge.code,
       status: challenge.status,
       startDate: challenge.startDate,
+      wager: challenge.wager,
+      wagerState: challenge.wagerState,
+      ...(balance !== undefined ? { balance } : {}),
       creator: { id: creator._id, username: creator.username, displayName: creator.displayName, avatar: creator.avatar },
       opponent: { id: req.user._id, username: req.user.username, displayName: req.user.displayName, avatar: req.user.avatar }
     });
@@ -118,6 +191,7 @@ router.get('/', auth, async (req, res) => {
         c.status = 'finished';
         await c.save();
       }
+      await settleIfNeeded(c);
     }
 
     const finishedIds = challenges
@@ -172,6 +246,7 @@ router.get('/:id', auth, async (req, res) => {
       challenge.status = 'finished';
       await challenge.save();
     }
+    await settleIfNeeded(challenge);
 
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -217,10 +292,24 @@ router.post('/:id/leave', auth, async (req, res) => {
       return res.status(403).json({ error: 'No eres participante de este reto' });
     }
 
+    await syncParticipants(challenge);
+
     if (isCreator) {
+      // Apuesta: reto sin terminar → reembolso a ambos; terminado → se paga al ganador.
+      await wallet.refundChallenge(challenge);
       await StepEntry.deleteMany({ challenge: challenge._id });
       await Challenge.findByIdAndDelete(challenge._id);
       return res.json({ message: 'Reto eliminado' });
+    }
+
+    if (challenge.wager > 0) {
+      if (wallet.isChallengeOver(challenge)) {
+        // Terminado: primero se liquida (el que sale no pierde un premio ganado).
+        await wallet.settleChallenge(challenge);
+      } else if (challenge.wagerState === 'open') {
+        // Rival abandona un reto en curso: recupera su apuesta, la del creador sigue en juego.
+        await wallet.refundUserStakes(req.userId, challenge._id);
+      }
     }
 
     challenge.opponent = null;
@@ -244,6 +333,8 @@ router.delete('/:id', auth, async (req, res) => {
       return res.status(403).json({ error: 'Solo el creador puede eliminar el reto' });
     }
 
+    await syncParticipants(challenge);
+    await wallet.refundChallenge(challenge);
     await StepEntry.deleteMany({ challenge: challenge._id });
     await Challenge.findByIdAndDelete(challenge._id);
 

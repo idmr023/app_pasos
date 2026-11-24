@@ -21,6 +21,22 @@
     button { padding: 8px 12px; border: none; border-radius: 6px; background: #ff6b35; color: #fff; cursor: pointer; }
     .banner { background: #d32f2f; padding: 8px 14px; font-weight: bold; }
     .inputrow[hidden] { display: none; }
+    /* Ánimo en vivo (power-ups) */
+    .cheers { padding: 8px 10px 4px; background: #12172b; border-top: 1px solid #222; }
+    .cheers[hidden], .pubar[hidden] { display: none; }
+    .energy { font-size: 12px; color: #ffb38f; margin-bottom: 6px; }
+    .pubar { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+    .pu { position: relative; flex: 0 0 auto; width: 48px; height: 48px; border-radius: 50%; padding: 0;
+          font-size: 22px; background: conic-gradient(#ff6b35 calc(var(--p, 1) * 360deg), #2a2f45 0);
+          transition: transform .15s; }
+    .pu::before { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: #1b2038; }
+    .pu span { position: relative; }
+    .pu.cool span { opacity: .45; }
+    .pu:active { transform: scale(1.15); }
+    .msg.pu-msg { color: #ffb38f; font-weight: 600; }
+    #burst { position: fixed; left: 50%; top: 35%; transform: translate(-50%, -50%) scale(.3); font-size: 72px;
+             pointer-events: none; opacity: 0; transition: transform .35s cubic-bezier(.2,1.6,.4,1), opacity .6s; }
+    #burst.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
     @media (max-width: 600px) {
       #map { height: 55dvh; min-height: 280px; }
       .bar { gap: 6px 12px; padding: 9px 12px; }
@@ -42,6 +58,11 @@
   </div>
   <div id="stoppedBanner" class="banner" style="display:none"></div>
   <div id="map"></div>
+  <div class="cheers" id="cheers">
+    <div class="energy" id="energy">Energía del público: aún sin ánimos</div>
+    <div class="pubar" id="pubar"></div>
+  </div>
+  <div id="burst"></div>
   <div class="chat">
     <div class="msgs" id="msgs"></div>
     <div class="inputrow" id="inputrow">
@@ -97,6 +118,13 @@
       const msgs = document.getElementById('msgs');
       const div = document.createElement('div');
       div.className = 'msg';
+      if (d.kind === 'powerUp') {
+        div.classList.add('pu-msg');
+        div.textContent = d.message || '';
+        msgs.appendChild(div);
+        msgs.scrollTop = msgs.scrollHeight;
+        return;
+      }
       const name = document.createElement('span');
       name.className = 'name';
       name.textContent = (d.senderName || 'Espectador') + ':';
@@ -110,8 +138,77 @@
       appendMessage(d);
     });
 
+    // --- Ánimo en vivo (power-ups). Tipos = POWER_UP_TYPES de utils/powerUps.js
+    const POWER_UPS = [
+      ['turbo', '🔥', 'Turbo'], ['agua', '💧', 'Agua'], ['aplausos', '👏', 'Aplausos'],
+      ['ultimoKm', '🏁', 'Último km'], ['ritmo', '⚡', 'Sube el ritmo'], ['fuerza', '💪', 'Tú puedes'],
+      ['voz', '🎙️', 'Ánimo de voz'],
+    ];
+    const COOLDOWN_MS = 5000;
+    let cooldownUntil = 0;
+    const pubar = document.getElementById('pubar');
+    POWER_UPS.forEach(([type, emoji, label]) => {
+      const b = document.createElement('button');
+      b.className = 'pu';
+      b.title = label;
+      b.setAttribute('aria-label', label);
+      const sp = document.createElement('span');
+      sp.textContent = emoji;
+      b.appendChild(sp);
+      b.addEventListener('click', () => sendPowerUp(type));
+      pubar.appendChild(b);
+    });
+    function tickCooldown() {
+      const left = Math.max(0, cooldownUntil - Date.now());
+      const p = 1 - left / COOLDOWN_MS;
+      pubar.querySelectorAll('.pu').forEach((b) => {
+        b.style.setProperty('--p', p);
+        b.classList.toggle('cool', left > 0);
+      });
+      if (left > 0) requestAnimationFrame(tickCooldown);
+    }
+    function startCooldown(ms) { cooldownUntil = Date.now() + ms; tickCooldown(); }
+    function sendPowerUp(type) {
+      if (activityEnded || Date.now() < cooldownUntil) return;
+      let text;
+      if (type === 'voz') {
+        text = (prompt('Tu ánimo (máx. 80 caracteres). El corredor lo escuchará en voz alta:') || '').trim().slice(0, 80);
+        if (!text) return;
+      }
+      const name = document.getElementById('nameInput').value.trim() || 'Invitado';
+      localStorage.setItem('guestName', name);
+      socket.emit('powerUp', { type, text, senderName: name });
+      if (navigator.vibrate) navigator.vibrate(40);
+      startCooldown(COOLDOWN_MS);
+    }
+    function renderEnergy(st) {
+      if (!st) return;
+      const top = st.topSupporter || (st.topSupporters && st.topSupporters[0]);
+      document.getElementById('energy').textContent = st.total
+        ? `🔥 ${st.total} ánimos · ${st.supporters} fans` + (top ? ` · Top: ${top.name} (${top.count})` : '')
+        : 'Energía del público: aún sin ánimos';
+    }
+    let burstTimer = null;
+    socket.on('powerUp', (d) => {
+      appendMessage({ kind: 'powerUp', message: d.message });
+      renderEnergy(d.stats);
+      const burst = document.getElementById('burst');
+      burst.textContent = d.emoji || '🔥';
+      burst.classList.add('show');
+      clearTimeout(burstTimer);
+      burstTimer = setTimeout(() => burst.classList.remove('show'), 900);
+    });
+    socket.on('error', (d) => {
+      if (d && d.code === 'POWERUP_COOLDOWN' && d.retryInMs) startCooldown(d.retryInMs);
+    });
+    fetch('/api/tracking/' + code + '/cheers')
+      .then(r => r.json())
+      .then(data => renderEnergy(data && data.cheers))
+      .catch(() => {});
+
     socket.on('trackingStopped', (d) => {
       activityEnded = true;
+      document.getElementById('pubar').hidden = true;
       const b = document.getElementById('stoppedBanner');
       b.style.display = 'block';
       b.textContent = 'Carrera finalizada — ' + ((d.totalDistance || 0).toFixed ? d.totalDistance.toFixed(2) : d.totalDistance) + ' km';
@@ -163,6 +260,7 @@
           document.getElementById('stoppedBanner').style.display = 'block';
           document.getElementById('stoppedBanner').textContent = 'Carrera finalizada';
           document.getElementById('inputrow').hidden = true;
+          document.getElementById('pubar').hidden = true;
         }
       }).catch(() => {});
   </script>

@@ -8,6 +8,7 @@ const User = require('../models/User');
 const TrackingLocation = require('../models/TrackingLocation');
 const { finalizeSession } = require('../utils/finalizeTracking');
 const { clearRoomSession, setSessionIdForRoom } = require('../utils/roomSessions');
+const { getCheersRecap, getCheerCountsByRoom } = require('../utils/powerUps');
 
 // Generar código de sala único (6 caracteres)
 function generateRoomCode() {
@@ -107,6 +108,10 @@ router.get('/sessions', auth, async (req, res) => {
       )
       .lean();
 
+    // Ánimos recibidos por carrera (1 aggregation para todo el listado).
+    const cheerCounts = await getCheerCountsByRoom(sessions.map((s) => s.code));
+    for (const s of sessions) s.cheersCount = cheerCounts[s.code] || 0;
+
     res.json({ success: true, sessions });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -179,6 +184,15 @@ router.post('/:roomCode/close', auth, async (req, res) => {
     await finalizeSession(session);
     clearRoomSession(session.code);
 
+    // Recap de ánimos para el resumen del corredor (best-effort: un fallo
+    // aquí no debe impedir cerrar la sesión).
+    let cheers = null;
+    try {
+      cheers = await getCheersRecap(session.code);
+    } catch (e) {
+      console.error('Error calculando recap de ánimos:', e);
+    }
+
     // Notificar a los espectadores en tiempo real que la carrera terminó.
     const io = req.app.get('io');
     if (io) {
@@ -205,6 +219,7 @@ router.post('/:roomCode/close', auth, async (req, res) => {
         totalTime: (session.endedAt - session.startedAt) / 1000,
         status: session.status,
       },
+      cheers,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -258,6 +273,33 @@ router.get('/:roomCode/history', async (req, res) => {
       success: true,
       locations,
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recap de ánimos (power-ups) de una sala: conteo por tipo, top supporters y
+// ejemplos de ánimos de voz. Mismas reglas de privacidad que /messages.
+router.get('/:roomCode/cheers', async (req, res) => {
+  try {
+    const code = req.params.roomCode.toUpperCase();
+    const session = await TrackingSession.findOne({ code }).select('isPublic');
+    if (!session) {
+      return res.status(404).json({ error: 'Sala no encontrada' });
+    }
+    const authHeader = req.headers.authorization;
+    if (!authHeader && !session.isPublic) {
+      return res.status(403).json({ error: 'Esta sesión es privada' });
+    }
+    if (authHeader) {
+      try {
+        jwt.verify(authHeader.replace('Bearer ', ''), process.env.JWT_SECRET);
+      } catch (e) {
+        return res.status(401).json({ error: 'Token inválido' });
+      }
+    }
+
+    res.json({ success: true, cheers: await getCheersRecap(code) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

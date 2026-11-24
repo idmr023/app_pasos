@@ -401,6 +401,13 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
                                     color: AppTheme.primary,
                                   ),
                                 ),
+                                if (((session['cheersCount'] as num?) ?? 0) > 0)
+                                  Text(
+                                    '🔥 ${session['cheersCount']} ánimos',
+                                    style: AppTheme.bodySmall.copyWith(
+                                      color: Colors.white70,
+                                    ),
+                                  ),
                                 Text(
                                   status == 'active'
                                       ? 'En curso'

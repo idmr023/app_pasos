@@ -17,6 +17,9 @@ const gymRoutes = require('./routes/gym');
 const chatRoutes = require('./routes/chat');
 const routeRoutes = require('./routes/routes');
 const trackingRoutes = require('./routes/tracking');
+const gameRoutes = require('./routes/game');
+const walletRoutes = require('./routes/wallet');
+const leagueRoutes = require('./routes/leagues');
 
 // Modelos para el manejo de sockets
 const jwt = require('jsonwebtoken');
@@ -114,6 +117,9 @@ app.use('/api/gym', gymRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/routes', routeRoutes);
 app.use('/api/tracking', trackingRoutes);
+app.use('/api/game', gameRoutes);
+app.use('/api/wallet', walletRoutes);
+app.use('/api/leagues', leagueRoutes);
 
 // Visor público de seguimiento en vivo (enlace compartible)
 const path = require('path');
@@ -138,6 +144,7 @@ app.use((err, req, res, next) => {
 });
 
 // --- Configuración de Socket.IO ---
+const powerUps = require('./utils/powerUps');
 const runnerTimers = {};
 const runnerDisconnectGraceMs = 5 * 60 * 1000;
 
@@ -327,6 +334,72 @@ io.on('connection', (socket) => {
     } catch (err) {
       console.error('Error saving chat message:', err);
       socket.emit('error', { message: 'Error enviando mensaje' });
+    }
+  });
+
+  // Evento: Power-up / ánimo en vivo (espectadores, invitados incluidos).
+  // Payload: { type, text?, senderName? }. Ver docs/LIVE_CHEERS.md.
+  socket.on('powerUp', async (data) => {
+    if (socket.handshake.query?.isRunner === 'true') {
+      return socket.emit('error', { message: 'El corredor no puede enviarse ánimos' });
+    }
+    const type = data?.type;
+    if (!powerUps.isValidPowerUpType(type)) {
+      return socket.emit('error', { message: 'Tipo de ánimo inválido', code: 'POWERUP_INVALID' });
+    }
+    const customText = type === 'voz' ? powerUps.sanitizeCustomText(data?.text) : '';
+    if (type === 'voz' && !customText) {
+      return socket.emit('error', { message: 'Escribe tu ánimo antes de enviarlo', code: 'POWERUP_INVALID' });
+    }
+
+    // Rate limit server-side por socket (antes de tocar la DB).
+    const retryInMs = powerUps.consumePowerUpSlot(socket);
+    if (retryInMs > 0) {
+      return socket.emit('error', {
+        message: `Espera ${Math.ceil(retryInMs / 1000)} s para mandar otro ánimo`,
+        code: 'POWERUP_COOLDOWN',
+        retryInMs,
+      });
+    }
+
+    try {
+      const session = await TrackingSession.findOne({ code: socket.roomCode }).select('_id status');
+      if (!session || session.status !== 'active') {
+        return socket.emit('error', { message: 'La actividad ya finalizó' });
+      }
+
+      const requestedName =
+        typeof data?.senderName === 'string' ? data.senderName.trim().slice(0, 30) : '';
+      const senderName = socket.user?.isGuest && requestedName ? requestedName : userName;
+
+      const saved = await LiveMessage.create({
+        roomCode: socket.roomCode,
+        session: session._id,
+        sender: socket.userId,
+        senderName,
+        senderType: 'spectator',
+        message: powerUps.buildDisplayMessage(type, senderName, customText),
+        kind: 'powerUp',
+        powerUpType: type,
+        timestamp: new Date(),
+      });
+      const stats = await powerUps.getLiveCheerStats(socket.roomCode);
+
+      io.to(socket.roomCode).emit('powerUp', {
+        type,
+        emoji: powerUps.POWER_UP_TYPES[type].emoji,
+        message: saved.message,
+        speech: powerUps.buildSpeech(type, senderName, customText),
+        text: customText || null,
+        senderId: socket.userId,
+        senderName,
+        senderType: 'spectator',
+        timestamp: saved.timestamp.toISOString(),
+        stats,
+      });
+    } catch (err) {
+      console.error('Error saving power-up:', err);
+      socket.emit('error', { message: 'Error enviando ánimo' });
     }
   });
 

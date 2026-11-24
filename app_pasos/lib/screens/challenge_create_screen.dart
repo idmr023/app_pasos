@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../config/theme.dart';
 import '../providers/challenge_provider.dart';
+import '../providers/wallet_provider.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/loading_states.dart';
 import '../widgets/neon_button.dart';
+import '../widgets/wallet_widgets.dart';
 
 class ChallengeCreateScreen extends StatefulWidget {
   const ChallengeCreateScreen({super.key});
@@ -16,6 +18,52 @@ class ChallengeCreateScreen extends StatefulWidget {
 
 class _ChallengeCreateScreenState extends State<ChallengeCreateScreen> {
   int _selectedDuration = 30;
+  int _selectedWager = 0;
+  static const _wagerOptions = [0, 1000, 5000, 10000, 25000];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ensureWalletLoaded(context);
+    });
+  }
+
+  Widget _wagerSelector() {
+    final wallet = context.watch<WalletProvider>();
+    return Column(children: [
+      Text('APUESTA DE PASOS (OPCIONAL)', style: AppTheme.labelLarge),
+      const SizedBox(height: 6),
+      Text(
+        wallet.hasLoaded ? 'Tu saldo: ${formatPasos(wallet.balance)} pasos' : 'Cargando saldo...',
+        style: AppTheme.bodySmall.copyWith(color: AppTheme.grey),
+      ),
+      const SizedBox(height: 10),
+      Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 8,
+        runSpacing: 8,
+        children: _wagerOptions.map((w) {
+          final affordable = w == 0 || !wallet.hasLoaded || wallet.balance >= w;
+          return ChoiceChip(
+            label: Text(w == 0 ? 'Sin apuesta' : formatPasos(w)),
+            selected: _selectedWager == w,
+            selectedColor: AppTheme.gold.withValues(alpha: 0.3),
+            onSelected: affordable ? (_) => setState(() => _selectedWager = w) : null,
+          );
+        }).toList(),
+      ),
+      if (_selectedWager > 0) ...[
+        const SizedBox(height: 8),
+        Text(
+          'Tu amigo también apuesta ${formatPasos(_selectedWager)} pasos. '
+          'El ganador se lleva ${formatPasos(_selectedWager * 2)}; si empatan o se borra el reto antes de terminar, se devuelven.',
+          textAlign: TextAlign.center,
+          style: AppTheme.bodySmall.copyWith(color: AppTheme.gold),
+        ),
+      ],
+    ]);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,6 +119,14 @@ class _ChallengeCreateScreenState extends State<ChallengeCreateScreen> {
             Text('RETO CREADO', style: AppTheme.headlineLarge.copyWith(letterSpacing: 4)),
             const SizedBox(height: 8),
             Text('Comparte este código con tu amigo', style: AppTheme.bodyMedium),
+            if (challenge.hasWager) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Apuesta: ${formatPasos(challenge.wager)} pasos cada uno · bote ${formatPasos(challenge.pot)}',
+                textAlign: TextAlign.center,
+                style: AppTheme.bodyMedium.copyWith(color: AppTheme.gold),
+              ),
+            ],
             const SizedBox(height: 32),
             GlassCard(
               width: double.infinity,
@@ -170,13 +226,22 @@ class _ChallengeCreateScreenState extends State<ChallengeCreateScreen> {
                 );
               }).toList(),
             ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 28),
+            _wagerSelector(),
+            const SizedBox(height: 32),
             NeonButton(
-              label: 'CREAR RETO',
+              label: _selectedWager > 0 ? 'CREAR RETO Y APOSTAR' : 'CREAR RETO',
               icon: Icons.emoji_events,
               onPressed: () async {
-                final success = await challengeProvider.createChallenge(duration: _selectedDuration);
+                final wallet = context.read<WalletProvider>();
+                final success =
+                    await challengeProvider.createChallenge(duration: _selectedDuration, wager: _selectedWager);
                 if (!mounted) return;
+                final created = challengeProvider.currentChallenge;
+                if (success && created?.balanceAfter != null) {
+                  wallet.setBalance(created!.balanceAfter!);
+                  wallet.refreshBalance();
+                }
                 if (!success) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text(challengeProvider.error ?? 'Error'), backgroundColor: AppTheme.error),

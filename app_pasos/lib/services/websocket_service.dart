@@ -54,6 +54,10 @@ class WebSocketService {
 
     final optionBuilder = io_client.OptionBuilder()
         .setTransports(['websocket'])
+        // Sin forceNew, socket_io_client reutiliza el Manager cacheado por
+        // URL y puede conservar el query (roomCode/isRunner) de la sala
+        // anterior al cambiar de carrera.
+        .enableForceNew()
         .setReconnectionAttempts(10)
         .setReconnectionDelay(1000)
         .disableAutoConnect()
@@ -72,36 +76,33 @@ class WebSocketService {
 
     _socket!.onConnect((_) {
       _isConnected = true;
+      // También se dispara en cada reconexión automática.
+      _eventsController.add({'type': 'connection', 'data': true});
       if (!completer.isCompleted) completer.complete();
     });
 
     _socket!.onDisconnect((_) {
       _isConnected = false;
+      _eventsController.add({'type': 'connection', 'data': false});
     });
 
     _socket!.onConnectError((err) {
       _isConnected = false;
-      _eventsController.add({
-        'type': 'error',
-        'data': {'message': 'Error de conexión: $err'},
-      });
       if (!completer.isCompleted) {
+        // Primer intento: el error lo maneja quien llamó a connect().
         completer.completeError(Exception('Error de conexión: $err'));
       }
+      // En reconexiones no se emite aviso por cada intento fallido: la UI
+      // ya muestra el estado "Reconectando…" vía el evento 'connection'.
     });
 
-    _socket!.onError((err) {
-      _eventsController.add({
-        'type': 'error',
-        'data': {'message': '$err'},
-      });
-    });
-
-    // Eventos del backend -> stream unificado
+    // Eventos del backend -> stream unificado. ('error' se registra solo
+    // aquí: onError() escucha el mismo evento y duplicaba cada aviso.)
     for (final event in [
       'connected',
       'locationUpdate',
       'chatMessage',
+      'powerUp',
       'trackingStopped',
       'userJoined',
       'userLeft',
@@ -130,6 +131,18 @@ class WebSocketService {
   bool sendChatMessage(String message) {
     if (!_isConnected || _socket == null) return false;
     _socket!.emit('chatMessage', {'message': message});
+    return true;
+  }
+
+  /// Power-up / ánimo en vivo (solo espectadores). [text] solo para 'voz';
+  /// [senderName] solo lo respeta el servidor para invitados.
+  bool sendPowerUp(String type, {String? text, String? senderName}) {
+    if (!_isConnected || _socket == null) return false;
+    _socket!.emit('powerUp', {
+      'type': type,
+      if (text != null) 'text': text,
+      if (senderName != null) 'senderName': senderName,
+    });
     return true;
   }
 

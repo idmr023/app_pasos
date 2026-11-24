@@ -38,10 +38,24 @@ const liveMessageSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  // 'chat' = mensaje normal; 'powerUp' = ánimo de espectador (ver
+  // utils/powerUps.js). Default 'chat': los documentos antiguos sin `kind`
+  // se tratan como chat (las agregaciones filtran por kind: 'powerUp').
+  kind: {
+    type: String,
+    enum: ['chat', 'powerUp'],
+    default: 'chat',
+  },
+  powerUpType: {
+    type: String,
+    default: null,
+  },
 }, {
   timestamps: true,
 });
 
 liveMessageSchema.index({ roomCode: 1, timestamp: 1 });
+// Estadísticas/recap de ánimos por sala.
+liveMessageSchema.index({ roomCode: 1, kind: 1 });
 
 module.exports = mongoose.model('LiveMessage', liveMessageSchema);

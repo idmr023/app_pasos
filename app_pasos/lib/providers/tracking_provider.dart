@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../config/api.dart';
+import '../models/power_up.dart';
 import '../services/websocket_service.dart';
 import '../services/location_service.dart';
 import '../services/tts_service.dart';
@@ -28,6 +29,12 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool _isTracking = false;
   bool _isRunner = false;
   String? _error;
+  // Avisos transitorios (mensaje rechazado, reconexión, GPS...). Antes se
+  // guardaban en _error y las pantallas reemplazaban mapa+chat por una
+  // pantalla de error sin salida: el chat "dejaba de funcionar" al primer
+  // aviso del servidor. Ahora se muestran como SnackBar y se descartan.
+  String? _notice;
+  bool _socketConnectedOnce = false;
   bool _trackingStopped = false;
 
   // --- Datos de Ubicación, Progreso y Cronómetro ---
@@ -46,6 +53,15 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
   Map<String, dynamic>? _finalStats;
   bool _resuming = false;
 
+  // --- Ánimo en vivo (power-ups de espectadores) ---
+  // Stream de power-ups recibidos, para animaciones (overlay del corredor).
+  final StreamController<Map<String, dynamic>> _powerUpController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  int _cheersTotal = 0;
+  int _cheersSupporters = 0;
+  Map<String, dynamic>? _topSupporter; // {name, count}
+  DateTime? _powerUpCooldownUntil;
+
   TrackingProvider() {
     WidgetsBinding.instance.addObserver(this);
   }
@@ -56,6 +72,19 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool get isConnected => _isConnected;
   bool get isTracking => _isTracking;
   bool get isRunner => _isRunner;
+  String? get notice => _notice;
+
+  /// Consume el aviso actual (la UI lo muestra una sola vez).
+  String? takeNotice() {
+    final n = _notice;
+    _notice = null;
+    return n;
+  }
+
+  void _setNotice(String message) {
+    _notice = message;
+    notifyListeners();
+  }
   String? get error => _error;
   bool get trackingStopped => _trackingStopped;
   double get goalDistance => _goalDistance;
@@ -65,6 +94,41 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
   List<Map<String, dynamic>> get messages => _messages;
   List<Map<String, dynamic>> get locations => _locations;
   Map<String, dynamic>? get finalStats => _finalStats;
+
+  /// Power-ups recibidos en vivo (cada evento: type, emoji, message,
+  /// senderName, speech...). Lo escucha el overlay animado del corredor.
+  Stream<Map<String, dynamic>> get powerUpEvents => _powerUpController.stream;
+
+  /// "Energía del público": total de ánimos, nº de supporters y el top.
+  int get cheersTotal => _cheersTotal;
+  int get cheersSupporters => _cheersSupporters;
+  Map<String, dynamic>? get topSupporter => _topSupporter;
+
+  /// Hasta cuándo el espectador debe esperar para otro power-up (espejo
+  /// local del rate limit del servidor, para el anillo de cooldown).
+  DateTime? get powerUpCooldownUntil => _powerUpCooldownUntil;
+
+  void _resetCheers() {
+    _cheersTotal = 0;
+    _cheersSupporters = 0;
+    _topSupporter = null;
+    _powerUpCooldownUntil = null;
+  }
+
+  /// Acepta tanto `stats` del evento en vivo ({total, supporters,
+  /// topSupporter}) como el recap de /cheers ({total, supporters,
+  /// topSupporters: [...]}).
+  void _applyCheerStats(dynamic stats) {
+    if (stats is! Map) return;
+    if (stats['total'] is num) _cheersTotal = (stats['total'] as num).toInt();
+    if (stats['supporters'] is num) {
+      _cheersSupporters = (stats['supporters'] as num).toInt();
+    }
+    var top = stats['topSupporter'];
+    final list = stats['topSupporters'];
+    if (top == null && list is List && list.isNotEmpty) top = list.first;
+    _topSupporter = top is Map ? Map<String, dynamic>.from(top) : null;
+  }
 
   /// Puntos del recorrido como LatLng para la polyline del mapa.
   List<LatLng> get routePoints {
@@ -109,25 +173,24 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
         _lastAcceptedPositionTime = null;
         _positionSubscription = _locationService.startTracking().listen(
           _sendPositionAsRunner,
-          onError: (e) {
-            _error = 'Error de GPS: $e';
-            notifyListeners();
-          },
+          onError: (e) => _setNotice('Error de GPS: $e'),
         );
       }
-      final reloadTasks = <Future<void>>[_loadMessageHistory()];
+      final reloadTasks = <Future<void>>[
+        _loadMessageHistory(),
+        _loadCheerStats(),
+      ];
       if (_role == TrackingRole.spectator) {
         reloadTasks.add(_loadRouteHistory());
       }
       await Future.wait(reloadTasks);
-      _error = null;
       notifyListeners();
     } catch (e) {
       _isConnected = false;
-      _error =
-          'No se pudo reconectar al tracking. Revisa tu conexión e inténtalo de nuevo.';
       debugPrint('[Tracking] Error reconectando al volver a la app: $e');
-      notifyListeners();
+      _setNotice(
+        'No se pudo reconectar al tracking. Revisa tu conexión e inténtalo de nuevo.',
+      );
     } finally {
       _resuming = false;
     }
@@ -159,6 +222,7 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
     _messages = [];
     _locations.clear();
     _finalStats = null;
+    _resetCheers();
 
     _positionSubscription?.cancel();
     _positionSubscription = null;
@@ -186,10 +250,7 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
       // Iniciar GPS y reenviar posiciones por socket
       _positionSubscription = _locationService.startTracking().listen(
         _sendPositionAsRunner,
-        onError: (e) {
-          _error = 'Error de GPS: $e';
-          notifyListeners();
-        },
+        onError: (e) => _setNotice('Error de GPS: $e'),
       );
 
       // Mantener la pantalla activa mientras se graba: si el corredor pone
@@ -303,6 +364,7 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
     _messages = [];
     _locations.clear();
     _finalStats = null;
+    _resetCheers();
 
     // Cancelar cualquier rastreo GPS previo (p.ej. el del corredor)
     _positionSubscription?.cancel();
@@ -319,6 +381,7 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
       // une tarde vea el mapa completo (best-effort).
       _loadRouteHistory();
       _loadMessageHistory();
+      _loadCheerStats();
       // Si la carrera finalizó en la ventana entre validación y socket,
       // marcarla como completada en lugar de esperar eternamente.
       _checkSessionStatus();
@@ -346,6 +409,7 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
     _messages = [];
     _locations.clear();
     _finalStats = null;
+    _resetCheers();
 
     _positionSubscription?.cancel();
     _positionSubscription = null;
@@ -363,6 +427,7 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       _loadRouteHistory();
       _loadMessageHistory();
+      _loadCheerStats();
       _checkSessionStatus();
     } catch (e) {
       _error = '$e';
@@ -374,6 +439,8 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   // --- Socket events ---
   void _listenToSocket() {
+    _socketConnectedOnce = false;
+    _notice = null;
     _socketSubscription?.cancel();
     _socketSubscription = _wsService.events.listen(_handleSocketEvent);
   }
@@ -530,6 +597,8 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
                           : null),
                   'senderType': message['senderType'],
                   'timestamp': message['timestamp'],
+                  'kind': message['kind'] ?? 'chat',
+                  'powerUpType': message['powerUpType'],
                 },
               )
               .toList();
@@ -539,6 +608,29 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
     } catch (e) {
       debugPrint('[Tracking] No se pudo cargar historial de chat: $e');
+    }
+  }
+
+  /// Best-effort: estadísticas de ánimos ya recibidos (espectador que se une
+  /// tarde o reconexión).
+  Future<void> _loadCheerStats() async {
+    try {
+      final token = await const FlutterSecureStorage().read(key: 'auth_token');
+      if (_roomCode == null) return;
+      final headers = <String, String>{};
+      if (token != null) headers['Authorization'] = 'Bearer $token';
+      final response = await http
+          .get(
+            Uri.parse('${ApiConfig.baseUrl}/tracking/$_roomCode/cheers'),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return;
+      final data = json.decode(response.body);
+      _applyCheerStats(data['cheers']);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[Tracking] No se pudo cargar ánimos: $e');
     }
   }
 
@@ -595,6 +687,29 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
         }
         break;
 
+      case 'powerUp':
+        if (data is Map) {
+          final powerUp = Map<String, dynamic>.from(data);
+          _messages.add({
+            'message': powerUp['message'],
+            'senderName': powerUp['senderName'],
+            'senderId': powerUp['senderId'],
+            'senderType': powerUp['senderType'],
+            'timestamp': powerUp['timestamp'],
+            'kind': 'powerUp',
+            'powerUpType': powerUp['type'],
+          });
+          if (_messages.length > 50) _messages.removeAt(0);
+          _applyCheerStats(powerUp['stats']);
+          if (!_powerUpController.isClosed) _powerUpController.add(powerUp);
+          // El corredor escucha cada ánimo en cola (no se cortan entre sí).
+          if (_role == TrackingRole.runner && powerUp['speech'] is String) {
+            _ttsService.enqueue(powerUp['speech'] as String);
+          }
+          notifyListeners();
+        }
+        break;
+
       case 'trackingStopped':
         _isTracking = false;
         _trackingStopped = true;
@@ -611,8 +726,31 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
         break;
 
       case 'error':
-        _error = data is Map ? '${data['message']}' : '$data';
+        if (data is Map &&
+            data['code'] == 'POWERUP_COOLDOWN' &&
+            data['retryInMs'] is num) {
+          // Sincronizar el anillo de cooldown con el rate limit del servidor.
+          _powerUpCooldownUntil = DateTime.now().add(
+            Duration(milliseconds: (data['retryInMs'] as num).toInt()),
+          );
+        }
+        _setNotice(data is Map ? '${data['message']}' : '$data');
+        break;
+
+      case 'connection':
+        // Estado de la conexión Socket.IO (reconexión automática).
+        final connected = data == true;
+        final isReconnect = connected && _socketConnectedOnce;
+        if (connected) _socketConnectedOnce = true;
+        if (connected == _isConnected) break;
+        _isConnected = connected;
         notifyListeners();
+        if (isReconnect && _roomCode != null && !_trackingStopped) {
+          // Recuperar mensajes/puntos perdidos mientras estaba desconectado.
+          _loadMessageHistory();
+          _loadCheerStats();
+          if (_role == TrackingRole.spectator) _loadRouteHistory();
+        }
         break;
     }
   }
@@ -636,14 +774,53 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> sendMessage(String message) async {
     final trimmed = message.trim();
     if (trimmed.isEmpty) return;
+    if (_trackingStopped) {
+      _setNotice('El chat está cerrado porque la actividad ya finalizó.');
+      return;
+    }
     if (!_wsService.isConnected) {
       await _reconnectAfterResume();
     }
     if (!_wsService.sendChatMessage(trimmed)) {
-      _error =
-          'El chat no está conectado. Espera un momento y vuelve a intentarlo.';
-      notifyListeners();
+      _setNotice(
+        'El chat no está conectado. Espera un momento y vuelve a intentarlo.',
+      );
     }
+  }
+
+  /// Manda un power-up al corredor (espectadores). Devuelve true si se envió.
+  /// [text] solo para el ánimo de voz (máx. 80 caracteres).
+  Future<bool> sendPowerUp(PowerUpType type, {String? text}) async {
+    if (_role != TrackingRole.spectator) return false;
+    if (_trackingStopped) {
+      _setNotice('La actividad ya finalizó.');
+      return false;
+    }
+    final until = _powerUpCooldownUntil;
+    if (until != null && DateTime.now().isBefore(until)) {
+      final secs =
+          (until.difference(DateTime.now()).inMilliseconds / 1000).ceil();
+      _setNotice('Espera $secs s para mandar otro ánimo');
+      return false;
+    }
+    String? custom;
+    if (type.id == PowerUpType.voz.id) {
+      custom = (text ?? '').replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (custom.isEmpty) return false;
+      if (custom.length > PowerUpType.maxCustomLength) {
+        custom = custom.substring(0, PowerUpType.maxCustomLength);
+      }
+    }
+    if (!_wsService.isConnected) {
+      await _reconnectAfterResume();
+    }
+    if (!_wsService.sendPowerUp(type.id, text: custom)) {
+      _setNotice('Sin conexión. Espera un momento y vuelve a intentarlo.');
+      return false;
+    }
+    _powerUpCooldownUntil = DateTime.now().add(PowerUpType.cooldown);
+    notifyListeners();
+    return true;
   }
 
   void stopTracking() {
@@ -660,8 +837,12 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
     });
   }
 
-  void leaveRoom() {
+  /// [notify] = false cuando se llama desde `dispose()` de una pantalla:
+  /// notificar con el árbol de widgets bloqueado lanza una aserción.
+  void leaveRoom({bool notify = true}) {
     stopTracking();
+    _notice = null;
+    _error = null;
     _socketSubscription?.cancel();
     _socketSubscription = null;
     _wsService.disconnect();
@@ -671,6 +852,7 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
     _isRunner = false;
     _trackingStopped = false;
     _finalStats = null;
+    _resetCheers();
     _currentRunnerLocation = null;
     _messages = [];
     _locations.clear();
@@ -679,12 +861,13 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
     _elapsedTime = Duration.zero;
     _timer?.cancel();
     _timer = null;
-    notifyListeners();
+    if (notify) notifyListeners();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _powerUpController.close();
     _socketSubscription?.cancel();
     _positionSubscription?.cancel();
     _timer?.cancel();

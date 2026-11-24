@@ -14,3 +14,5 @@ backend/backend-dev*.log
 node_modules
 .vercel
 .env*.local
+# Archivo local con secretos (no subir)
+/env
