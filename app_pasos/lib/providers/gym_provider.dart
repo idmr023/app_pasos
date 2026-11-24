@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/exercise.dart';
+import '../models/exercise_progress.dart';
 import '../models/routine.dart';
 import '../services/gym_service.dart';
 
@@ -19,6 +20,13 @@ class GymProvider extends ChangeNotifier {
   List<Map<String, dynamic>> _weightAchievements = [];
   double _maxKg = 0;
   Map<String, dynamic>? _currentQuote;
+  final Map<String, ExerciseProgress> _progress = {};
+  List<MapEntry<String, ProgressSuggestion>> _lastProgression = [];
+
+  /// Estado de progresión por exerciseId.
+  ExerciseProgress? progressFor(String exerciseId) => _progress[exerciseId];
+  /// Sugerencias devueltas por el último `logWorkout` (exerciseId → sugerencia).
+  List<MapEntry<String, ProgressSuggestion>> get lastProgression => _lastProgression;
 
   List<Exercise> get exercises => _exercises;
   List<Routine> get routines => _routines;
@@ -154,10 +162,47 @@ class GymProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Carga el estado de progresión de carga de los ejercicios indicados.
+  Future<void> loadProgress(List<String> exerciseIds) async {
+    if (_service == null || exerciseIds.isEmpty) return;
+    try {
+      final data = await _service!.getProgress(exerciseIds);
+      for (final p in (data['progress'] as List? ?? [])) {
+        final progress = ExerciseProgress.fromJson(p as Map<String, dynamic>);
+        if (progress.exerciseId.isNotEmpty) _progress[progress.exerciseId] = progress;
+      }
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  /// Ajuste manual: peso base, unidad o nota de carga. Devuelve null si falla.
+  Future<ExerciseProgress?> updateProgress(String exerciseId, Map<String, dynamic> body) async {
+    if (_service == null) return null;
+    try {
+      final data = await _service!.updateProgress(exerciseId, body);
+      final progress = ExerciseProgress.fromJson(data['progress'] as Map<String, dynamic>);
+      _progress[exerciseId] = progress;
+      notifyListeners();
+      return progress;
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+      notifyListeners();
+      return null;
+    }
+  }
+
   Future<bool> logWorkout(Map<String, dynamic> body) async {
     if (_service == null) return false;
+    _lastProgression = [];
     try {
-      await _service!.logWorkout(body);
+      final data = await _service!.logWorkout(body);
+      _lastProgression = (data['progression'] as List? ?? [])
+          .whereType<Map<String, dynamic>>()
+          .map((p) => MapEntry(p['exerciseId']?.toString() ?? '', ProgressSuggestion.fromJson(p)))
+          .where((e) => e.key.isNotEmpty)
+          .toList();
+      final ids = _lastProgression.map((e) => e.key).toList();
+      if (ids.isNotEmpty) await loadProgress(ids);
       await loadStreak();
       await loadPersonalRecords();
       return true;

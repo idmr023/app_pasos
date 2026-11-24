@@ -193,6 +193,40 @@ class GymService {
     return data;
   }
 
+  Future<Map<String, dynamic>> getProgress(List<String> exerciseIds) async {
+    final ids = Uri.encodeQueryComponent(exerciseIds.join(','));
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/gym/progress?exerciseIds=$ids'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    ).timeout(ApiConfig.timeout);
+
+    final data = _parseJson(response);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Error al obtener progresión');
+    }
+    return data;
+  }
+
+  Future<Map<String, dynamic>> updateProgress(String exerciseId, Map<String, dynamic> body) async {
+    final response = await http.put(
+      Uri.parse('${ApiConfig.baseUrl}/gym/progress/${Uri.encodeComponent(exerciseId)}'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode(body),
+    ).timeout(ApiConfig.timeout);
+
+    final data = _parseJson(response);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Error al actualizar progresión');
+    }
+    return data;
+  }
+
   Future<Map<String, dynamic>> getWeightAchievements() async {
     final response = await http.get(
       Uri.parse('${ApiConfig.baseUrl}/gym/weight-achievements'),

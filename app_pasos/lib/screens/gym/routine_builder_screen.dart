@@ -4,6 +4,7 @@ import '../../config/theme.dart';
 import '../../providers/gym_provider.dart';
 import '../../models/exercise.dart';
 import '../../models/routine.dart';
+import '../../models/exercise_progress.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/loading_states.dart';
 import '../../widgets/screen_top_bar.dart';
@@ -33,14 +34,8 @@ class _RoutineBuilderScreenState extends State<RoutineBuilderScreen> {
       final r = widget.editRoutine!;
       _nameController = TextEditingController(text: r.name);
       _isWarmup = r.isWarmup;
-      _exercises = r.exercises.map((e) => RoutineExercise(
-        exerciseId: e.exerciseId,
-        exerciseName: e.exerciseName,
-        sets: e.sets,
-        reps: e.reps,
-        restTime: e.restTime,
-        order: e.order,
-      )).toList();
+      // copy() conserva rango e incremento; copiar campo por campo los perdía.
+      _exercises = r.exercises.map((e) => e.copy()).toList();
     } else {
       _nameController = TextEditingController();
     }
@@ -95,6 +90,19 @@ class _RoutineBuilderScreenState extends State<RoutineBuilderScreen> {
 
     setState(() => _isSaving = true);
 
+    // Con rango de repeticiones, `reps` se guarda también como texto "6-10".
+    for (final e in _exercises) {
+      final min = e.repsMin, max = e.repsMax;
+      if (min == null || max == null || e.isTimed) {
+        e.repsMin = null;
+        e.repsMax = null;
+        continue;
+      }
+      e.repsMin = min <= max ? min : max;
+      e.repsMax = min <= max ? max : min;
+      e.reps = '${e.repsMin}-${e.repsMax}';
+    }
+
     final body = {
       'name': name,
       'isWarmup': _isWarmup,
@@ -131,6 +139,7 @@ class _RoutineBuilderScreenState extends State<RoutineBuilderScreen> {
               ? _nameController.text.trim()
               : 'Rutina',
           exercises: _exercises,
+          routineId: widget.editRoutine?.id,
         ),
       ),
     );
@@ -331,10 +340,68 @@ class _RoutineBuilderScreenState extends State<RoutineBuilderScreen> {
                   ),
                 ],
               ),
+              if (!ex.isTimed) ...[
+                const SizedBox(height: 8),
+                _buildProgressionInputs(ex),
+              ],
             ],
           ),
         );
       },
+    );
+  }
+
+  /// Rango de repeticiones e incremento para la progresión de carga.
+  Widget _buildProgressionInputs(RoutineExercise ex) {
+    Widget field(String label, String value, String hint, ValueChanged<String> onChanged) {
+      return Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppTheme.primary.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            children: [
+              Text(label, style: const TextStyle(fontSize: 9, color: AppTheme.darkGrey, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 2),
+              TextFormField(
+                initialValue: value,
+                style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w600),
+                textAlign: TextAlign.center,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                  hintText: hint,
+                  hintStyle: const TextStyle(fontSize: 12, color: AppTheme.darkGrey),
+                ),
+                onChanged: onChanged,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        field('Mín reps', ex.repsMin?.toString() ?? '', '6', (v) {
+          final n = int.tryParse(v.trim());
+          ex.repsMin = (n != null && n >= 1 && n <= 100) ? n : null;
+        }),
+        const SizedBox(width: 8),
+        field('Máx reps', ex.repsMax?.toString() ?? '', '10', (v) {
+          final n = int.tryParse(v.trim());
+          ex.repsMax = (n != null && n >= 1 && n <= 100) ? n : null;
+        }),
+        const SizedBox(width: 8),
+        field('Incremento (kg)', formatKg(ex.incrementKg), '2.5', (v) {
+          final n = double.tryParse(v.trim().replaceAll(',', '.'));
+          if (n != null && n > 0 && n <= 50) ex.incrementKg = n;
+        }),
+      ],
     );
   }
 

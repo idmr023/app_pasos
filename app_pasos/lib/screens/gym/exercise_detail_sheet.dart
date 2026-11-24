@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import '../../config/theme.dart';
 import '../../models/exercise.dart';
+import '../../models/exercise_progress.dart';
+import '../../providers/gym_provider.dart';
 import '../../widgets/glass_card.dart';
 
 class ExerciseDetailSheet extends StatefulWidget {
@@ -31,6 +34,9 @@ class _ExerciseDetailSheetState extends State<ExerciseDetailSheet> {
   void initState() {
     super.initState();
     _initVideo();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<GymProvider>().loadProgress([widget.exercise.id]);
+    });
   }
 
   void _initVideo() {
@@ -122,6 +128,8 @@ class _ExerciseDetailSheetState extends State<ExerciseDetailSheet> {
                       _buildHeader(ex),
                       const SizedBox(height: 16),
                       _buildInfoChips(ex),
+                      const SizedBox(height: 16),
+                      _buildProgression(ex),
                       if (ex.description.isNotEmpty) ...[
                         const SizedBox(height: 16),
                         _buildDescription(ex),
@@ -140,6 +148,112 @@ class _ExerciseDetailSheetState extends State<ExerciseDetailSheet> {
         },
       ),
     );
+  }
+
+  /// "Tu progresión": peso base, estado y ajuste manual (PUT /gym/progress/:id).
+  Widget _buildProgression(Exercise ex) {
+    return Selector<GymProvider, ExerciseProgress?>(
+      selector: (_, g) => g.progressFor(ex.id),
+      builder: (context, p, _) {
+        final base = p?.currentWeightKg ?? 0;
+        return GlassCard(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.trending_up, color: AppTheme.primary, size: 18),
+                  const SizedBox(width: 8),
+                  Text('TU PROGRESIÓN', style: AppTheme.labelLarge),
+                  const Spacer(),
+                  _buildBadge(p?.statusLabel ?? 'Sin datos', AppTheme.secondary),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                base > 0 ? 'Peso base: ${formatKg(base)} kg' : 'Aún sin peso base',
+                style: AppTheme.titleMedium,
+              ),
+              if (p != null && p.loadNote.isNotEmpty)
+                Text(p.loadNote, style: AppTheme.bodySmall),
+              if (p?.next != null && p!.next!.message.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text('Próxima sesión: ${p.next!.message}', style: AppTheme.bodySmall),
+              ],
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: () => _editBase(ex, p),
+                  icon: const Icon(Icons.edit, size: 16),
+                  label: const Text('Ajustar peso base'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.primary,
+                    side: BorderSide(color: AppTheme.primary.withValues(alpha: 0.4)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _editBase(Exercise ex, ExerciseProgress? p) async {
+    final weightCtrl = TextEditingController(
+      text: (p?.currentWeightKg ?? 0) > 0 ? formatKg(p!.currentWeightKg) : '',
+    );
+    final noteCtrl = TextEditingController(text: p?.loadNote ?? '');
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        title: const Text('Ajustar peso base'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: weightCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Peso base (kg)', hintText: '0 = volver a calibrar'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: noteCtrl,
+              maxLength: 60,
+              decoration: const InputDecoration(labelText: 'Nota de carga', hintText: 'por lado, por mancuerna…'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Guardar')),
+        ],
+      ),
+    );
+    final weight = double.tryParse(weightCtrl.text.trim().replaceAll(',', '.'));
+    final note = noteCtrl.text.trim();
+    // Los controllers no se liberan aquí: el diálogo aún los usa en su animación de cierre.
+    if (saved != true || !mounted) return;
+    if (weight == null || weight < 0 || weight > 500) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Escribe un peso entre 0 y 500 kg')),
+      );
+      return;
+    }
+    final result = await context.read<GymProvider>().updateProgress(ex.id, {
+      'currentWeightKg': weight,
+      'loadNote': note,
+      'exerciseName': ex.displayName,
+    });
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(result != null ? 'Peso base actualizado' : 'No se pudo guardar el peso base'),
+    ));
   }
 
   Widget _buildHandle() {
