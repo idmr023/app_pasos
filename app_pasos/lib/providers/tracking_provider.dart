@@ -226,23 +226,31 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
 
-    // Distancia acumulada en km
     if (_lastPosition != null) {
+      final elapsedSeconds =
+          position.timestamp.difference(_lastPosition!.timestamp).inSeconds;
+      if (elapsedSeconds <= 0 || elapsedSeconds > 120) {
+        // Evitamos acumular distancia con puntos viejos o saturados tras
+        // reanudaciones / desconexiones y con la pantalla apagada.
+        _lastPosition = position;
+        _lastAcceptedPositionTime = position.timestamp;
+        return;
+      }
+
       final deltaMeters = Geolocator.distanceBetween(
         _lastPosition!.latitude,
         _lastPosition!.longitude,
         position.latitude,
         position.longitude,
       );
-      final elapsedSeconds =
-          position.timestamp.difference(_lastPosition!.timestamp).inSeconds;
       final speedMetersPerSecond =
           position.speed.isFinite && position.speed > 0 ? position.speed : 0;
       final maxPlausibleDelta = [
         40.0,
-        speedMetersPerSecond * elapsedSeconds +
+        (speedMetersPerSecond * elapsedSeconds) +
             position.accuracy +
-            _lastPosition!.accuracy,
+            _lastPosition!.accuracy +
+            25.0,
       ].reduce((a, b) => a > b ? a : b);
 
       if (deltaMeters >= 3.0 && deltaMeters <= maxPlausibleDelta) {

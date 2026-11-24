@@ -35,7 +35,22 @@ class LocationService {
       permission = await Geolocator.requestPermission();
     }
     if (permission == LocationPermission.deniedForever) {
-      throw Exception('Permisos de ubicación denegados permanentemente');
+      throw Exception(
+        'Permisos de ubicación denegados permanentemente. Actívalos en Ajustes.',
+      );
+    }
+
+    if (permission == LocationPermission.whileInUse &&
+        defaultTargetPlatform == TargetPlatform.android) {
+      // El tracking de carrera no puede seguir activo con la pantalla apagada ni
+      // con el celular en el bolsillo si el sistema solo tiene permiso en primer
+      // plano. En Android 10+ hace falta "Permitir siempre". Lo presentamos
+      // como error explícito para obligar a activar esa configuración antes de
+      // empezar la sesión.
+      await Geolocator.openAppSettings();
+      throw Exception(
+        'Activa la ubicación en segundo plano ("Permitir siempre") para que el seguimiento continúe con la pantalla apagada y el teléfono en el bolsillo.',
+      );
     }
   }
 
