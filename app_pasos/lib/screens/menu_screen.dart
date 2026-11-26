@@ -10,6 +10,7 @@ import 'games/game_hub_screen.dart';
 import 'wallet/wallet_screen.dart';
 import 'main_shell.dart';
 import 'routes/routes_screen.dart';
+import 'training/training_hub_screen.dart';
 import 'profile_screen.dart';
 
 /// Tab "Explorar": hub con acceso a todo lo que no tiene tab propia
@@ -40,6 +41,13 @@ class MenuScreen extends StatelessWidget {
         subtitle: 'Gasta tus pasos en la tienda',
         colors: const [Color(0xFF00C9A7), Color(0xFF00897B)],
         onTap: () => _push(context, const WalletScreen()),
+      ),
+      _HubTile(
+        icon: Icons.timeline,
+        label: 'Entrenamiento',
+        subtitle: 'Análisis y plan de carrera',
+        colors: const [Color(0xFFFC4C02), Color(0xFFE53935)],
+        onTap: () => _push(context, const TrainingHubScreen()),
       ),
       _HubTile(
         icon: Icons.map_outlined,

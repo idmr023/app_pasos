@@ -20,6 +20,7 @@ const trackingRoutes = require('./routes/tracking');
 const gameRoutes = require('./routes/game');
 const walletRoutes = require('./routes/wallet');
 const leagueRoutes = require('./routes/leagues');
+const trainingRoutes = require('./routes/training');
 
 // Modelos para el manejo de sockets
 const jwt = require('jsonwebtoken');
@@ -28,9 +29,11 @@ const TrackingSession = require('./models/TrackingSession');
 const TrackingLocation = require('./models/TrackingLocation');
 const LiveMessage = require('./models/LiveMessage');
 const { finalizeSession } = require('./utils/finalizeTracking');
+const { normalizeLocationPoint, samplePoints } = require('./utils/plannedRoute');
 const {
   getSessionIdForRoom,
   clearRoomSession,
+  setSessionIdForRoom,
 } = require('./utils/roomSessions');
 
 dns.setServers(['8.8.8.8', '1.1.1.1']);
@@ -120,6 +123,7 @@ app.use('/api/tracking', trackingRoutes);
 app.use('/api/game', gameRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/leagues', leagueRoutes);
+app.use('/api/training', trainingRoutes);
 
 // Visor público de seguimiento en vivo (enlace compartible)
 const path = require('path');
@@ -146,7 +150,10 @@ app.use((err, req, res, next) => {
 // --- Configuración de Socket.IO ---
 const powerUps = require('./utils/powerUps');
 const runnerTimers = {};
-const runnerDisconnectGraceMs = 5 * 60 * 1000;
+// Carreras largas con mala señal (arena, cerros): 20 min de gracia antes de
+// cerrar la sala; si el corredor vuelve después, se reabre (autoClosed).
+const runnerDisconnectGraceMs = Number(process.env.RUNNER_GRACE_MS) || 20 * 60 * 1000;
+const MAX_BATCH_POINTS = 500;
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -222,6 +229,25 @@ io.on('connection', (socket) => {
   // Unir a la sala
   socket.join(socket.roomCode);
 
+  // Corredor que vuelve tras una desconexión larga: si el timer ya cerró la
+  // sala, se reabre para que la carrera continúe para los espectadores.
+  if (socket.isRunner && socket.userId) {
+    TrackingSession.findOne({ code: socket.roomCode, runner: socket.userId })
+      .then(async (session) => {
+        if (session && session.status === 'completed' && session.autoClosed) {
+          session.status = 'active';
+          session.autoClosed = false;
+          session.endedAt = undefined;
+          await session.save();
+          setSessionIdForRoom(session.code, session._id);
+          io.to(socket.roomCode).emit('trackingResumed', {
+            message: 'El corredor recuperó la conexión',
+          });
+        }
+      })
+      .catch((err) => console.error('Error reabriendo sesión:', err));
+  }
+
   // Confirmar conexión
   socket.emit('connected', {
     roomCode: socket.roomCode,
@@ -242,40 +268,72 @@ io.on('connection', (socket) => {
       return; // Solo el corredor puede enviar ubicaciones
     }
 
+    const point = normalizeLocationPoint(data);
+    if (!point) return;
+
     try {
       const sessionId = await getSessionIdForRoom(socket.roomCode, TrackingSession);
 
       // Guardar ubicación en MongoDB
-      const location = await TrackingLocation.create({
+      await TrackingLocation.create({
+        ...point,
         roomCode: socket.roomCode,
         session: sessionId,
         runner: socket.userId,
-        latitude: data.latitude,
-        longitude: data.longitude,
-        speed: data.speed,
-        pace: data.pace,
-        heading: data.heading,
-        accuracy: data.accuracy,
-        altitude: data.altitude,
-        distance: typeof data.distance === 'number' ? data.distance : 0,
-        timestamp: new Date(data.timestamp || Date.now()),
+        timestamp: new Date(point.timestamp),
       });
 
       // Retransmitir a todos los espectadores
-      socket.to(socket.roomCode).emit('locationUpdate', {
-        latitude: data.latitude,
-        longitude: data.longitude,
-        distance: data.distance,
-        speed: data.speed,
-        pace: data.pace,
-        heading: data.heading,
-        accuracy: data.accuracy,
-        altitude: data.altitude,
-        timestamp: data.timestamp || Date.now(),
-      });
+      socket.to(socket.roomCode).emit('locationUpdate', point);
     } catch (err) {
       console.error('Error saving location:', err);
       socket.emit('error', { message: 'Error guardando ubicación' });
+    }
+  });
+
+  // Evento: lote de ubicaciones con ack (corredor). La app encola todos los
+  // puntos y los envía así; sin señal se acumulan y llegan al reconectar.
+  // Idempotente: un lote reenviado (ack perdido) no duplica puntos.
+  socket.on('locationBatch', async (data, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    if (socket.handshake.query?.isRunner !== 'true') {
+      return reply({ ok: false, error: 'Solo el corredor' });
+    }
+    const raw = data && Array.isArray(data.points) ? data.points.slice(0, MAX_BATCH_POINTS) : [];
+    const points = raw.map(normalizeLocationPoint).filter(Boolean);
+    if (points.length === 0) return reply({ ok: true, count: 0 });
+
+    try {
+      const sessionId = await getSessionIdForRoom(socket.roomCode, TrackingSession);
+      const stamps = points.map((p) => new Date(p.timestamp));
+      const existing = await TrackingLocation.find({
+        roomCode: socket.roomCode,
+        timestamp: { $in: stamps },
+      }).select('timestamp -_id').lean();
+      const seen = new Set(existing.map((e) => new Date(e.timestamp).getTime()));
+      const fresh = points.filter((p) => !seen.has(p.timestamp));
+
+      if (fresh.length > 0) {
+        await TrackingLocation.insertMany(
+          fresh.map((p) => ({
+            ...p,
+            roomCode: socket.roomCode,
+            session: sessionId,
+            runner: socket.userId,
+            timestamp: new Date(p.timestamp),
+          })),
+          { ordered: false },
+        );
+        if (fresh.length === 1) {
+          socket.to(socket.roomCode).emit('locationUpdate', fresh[0]);
+        } else {
+          socket.to(socket.roomCode).emit('locationBatch', { points: samplePoints(fresh, 300) });
+        }
+      }
+      reply({ ok: true, count: fresh.length });
+    } catch (err) {
+      console.error('Error saving location batch:', err);
+      reply({ ok: false, error: 'Error guardando ubicaciones' });
     }
   });
 
@@ -445,12 +503,16 @@ io.on('connection', (socket) => {
       runnerTimers[timerKey] = setTimeout(async () => {
         delete runnerTimers[timerKey];
         try {
+          // Si el 'disconnect' de un socket viejo llegó después de que el
+          // corredor ya se reconectó con otro, no cerrar la sala.
+          const inRoom = await io.in(socket.roomCode).fetchSockets();
+          if (inRoom.some((s) => s.handshake?.query?.isRunner === 'true')) return;
           const session = await TrackingSession.findOne({ code: socket.roomCode });
           if (session && session.status === 'active') {
-            await finalizeSession(session);
+            await finalizeSession(session, { autoClosed: true });
             clearRoomSession(socket.roomCode);
             io.to(socket.roomCode).emit('trackingStopped', {
-              message: 'El corredor se ha desconectado',
+              message: 'El corredor perdió la conexión. Si vuelve, la carrera continúa.',
               totalDistance: session.totalDistance,
               avgSpeed: session.avgSpeed,
               maxSpeed: session.maxSpeed,
@@ -466,7 +528,27 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Servidor corriendo en puerto ${PORT}`);
+const BASE_PORT = Number(process.env.PORT) || 3000;
+const MAX_PORT_ATTEMPTS = 10;
+let currentPort = BASE_PORT;
+
+// Si el puerto está ocupado (EADDRINUSE), prueba el siguiente (3001, 3002, …).
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE' && currentPort < BASE_PORT + MAX_PORT_ATTEMPTS - 1) {
+    console.warn(`Puerto ${currentPort} en uso, probando ${currentPort + 1}...`);
+    currentPort += 1;
+    server.listen(currentPort);
+    return;
+  }
+  console.error('Error al iniciar el servidor:', err);
+  process.exit(1);
 });
+
+server.on('listening', () => {
+  console.log(`Servidor corriendo en puerto ${currentPort}`);
+  if (currentPort !== BASE_PORT) {
+    console.warn(`OJO: el puerto ${BASE_PORT} estaba ocupado. Usa BACKEND_URL=http://<tu-ip>:${currentPort}/api en Flutter.`);
+  }
+});
+
+server.listen(currentPort);

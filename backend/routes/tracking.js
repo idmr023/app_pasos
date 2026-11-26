@@ -9,6 +9,7 @@ const TrackingLocation = require('../models/TrackingLocation');
 const { finalizeSession } = require('../utils/finalizeTracking');
 const { clearRoomSession, setSessionIdForRoom } = require('../utils/roomSessions');
 const { getCheersRecap, getCheerCountsByRoom } = require('../utils/powerUps');
+const { normalizePlannedRoute, samplePoints } = require('../utils/plannedRoute');
 
 // Generar código de sala único (6 caracteres)
 function generateRoomCode() {
@@ -159,10 +160,53 @@ router.get('/:roomCode', async (req, res) => {
         maxSpeed: session.maxSpeed,
         avgPace: session.avgPace,
         pointCount: session.pointCount,
+        plannedRoute: session.plannedRoute && session.plannedRoute.points?.length >= 2
+          ? session.plannedRoute
+          : null,
       },
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Ruta planificada (.gpx) del corredor: la ven los espectadores con el
+// progreso y lo que falta. Body: { name, points: [[lat, lng, ele?], ...] }.
+router.post('/:roomCode/route', auth, async (req, res) => {
+  try {
+    const session = await TrackingSession.findOne({ code: req.params.roomCode.toUpperCase() });
+    if (!session) return res.status(404).json({ error: 'Sala no encontrada' });
+    if (session.runner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Solo el corredor puede subir la ruta' });
+    }
+    const { route, error } = normalizePlannedRoute(req.body);
+    if (error) return res.status(400).json({ error });
+
+    session.plannedRoute = route;
+    await session.save();
+
+    const io = req.app.get('io');
+    if (io) io.to(session.code).emit('routeUpdated', { route });
+    res.json({ success: true, route: { name: route.name, totalDistance: route.totalDistance, elevationGain: route.elevationGain, pointCount: route.points.length } });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al guardar la ruta' });
+  }
+});
+
+router.delete('/:roomCode/route', auth, async (req, res) => {
+  try {
+    const session = await TrackingSession.findOne({ code: req.params.roomCode.toUpperCase() });
+    if (!session) return res.status(404).json({ error: 'Sala no encontrada' });
+    if (session.runner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Solo el corredor puede quitar la ruta' });
+    }
+    session.plannedRoute = undefined;
+    await session.save();
+    const io = req.app.get('io');
+    if (io) io.to(session.code).emit('routeUpdated', { route: null });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al quitar la ruta' });
   }
 });
 
@@ -181,7 +225,8 @@ router.post('/:roomCode/close', auth, async (req, res) => {
       return res.status(403).json({ error: 'No tienes permiso para cerrar esta sesión' });
     }
 
-    await finalizeSession(session);
+    const clientDistanceKm = Number(req.body?.totalDistance);
+    await finalizeSession(session, { clientDistanceKm });
     clearRoomSession(session.code);
 
     // Recap de ánimos para el resumen del corredor (best-effort: un fallo
@@ -236,6 +281,7 @@ router.get('/:roomCode/history', async (req, res) => {
     const { roomCode } = req.params;
     const limit = Math.min(parseInt(req.query.limit, 10) || 500, 5000);
     const recent = req.query.recent === 'true';
+    const full = req.query.full === 'true';
     const code = roomCode.toUpperCase();
 
     const session = await TrackingSession.findOne({ code }).select('isPublic status');
@@ -255,7 +301,14 @@ router.get('/:roomCode/history', async (req, res) => {
     }
 
     let locations;
-    if (recent) {
+    if (full) {
+      // Todo el recorrido muestreado a ≤ limit puntos (carreras largas).
+      const all = await TrackingLocation.find({ roomCode: code })
+        .sort({ timestamp: 1 })
+        .select('latitude longitude distance speed pace timestamp -_id')
+        .lean();
+      locations = samplePoints(all, limit);
+    } else if (recent) {
       // Los más recientes primero, y luego se devuelven en orden cronológico
       const latest = await TrackingLocation.find({ roomCode: code })
         .sort({ timestamp: -1 })

@@ -17,7 +17,15 @@ const workoutExerciseSchema = new mongoose.Schema({
   weightKg: {
     type: Number,
     default: 0
-  }
+  },
+  // Detalle real por serie (opcional: versiones antiguas de la app no lo envían)
+  setLogs: [{
+    _id: false,
+    weightKg: { type: Number, default: 0 },
+    reps: { type: Number, default: 0 },
+    seconds: { type: Number, default: 0 },
+    rir: { type: Number, default: null } // repeticiones en reserva (solo calibración); -1 = no llegó
+  }]
 });
 
 const workoutSchema = new mongoose.Schema({

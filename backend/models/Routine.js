@@ -24,7 +24,11 @@ const routineExerciseSchema = new mongoose.Schema({
   order: {
     type: Number,
     default: 0
-  }
+  },
+  // Progresión de carga (opcionales; si son null se derivan de `reps`)
+  repsMin: { type: Number, default: null },
+  repsMax: { type: Number, default: null },
+  incrementKg: { type: Number, default: 2.5 }
 });
 
 const routineSchema = new mongoose.Schema({

@@ -8,6 +8,9 @@ const Quote = require('../models/Quote');
 const User = require('../models/User');
 const Exercise = require('../models/Exercise');
 const { levelFromXp, bestTitleForLevel, getUserXpData } = require('../services/xpService');
+const mongoose = require('mongoose');
+const ExerciseProgress = require('../models/ExerciseProgress');
+const { computeNext, parsePrescription } = require('../services/progressionService');
 
 const EXERCISE_XP = 5;
 const STREAK_XP = 500;
@@ -25,6 +28,120 @@ const WGER_CAT_MAP = {
 };
 
 const router = express.Router();
+
+/**
+ * Mapea y valida un ejercicio de rutina (POST/PUT /routines).
+ * Devuelve { value } o { error } si el rango/incremento es inválido.
+ */
+function mapRoutineExercise(e, i) {
+  const value = {
+    exercise: e.exerciseId || e.exercise,
+    exerciseName: (e.exerciseName || e.name || '').toString().slice(0, 200),
+    sets: Math.min(100, Math.max(1, parseInt(e.sets) || 3)),
+    reps: (e.reps || '10').toString().slice(0, 20),
+    restTime: Math.min(3600, Math.max(0, parseInt(e.restTime) || 60)),
+    order: i,
+    repsMin: null,
+    repsMax: null,
+    incrementKg: 2.5
+  };
+  const hasMin = e.repsMin !== undefined && e.repsMin !== null && e.repsMin !== '';
+  const hasMax = e.repsMax !== undefined && e.repsMax !== null && e.repsMax !== '';
+  if (hasMin || hasMax) {
+    const min = Number(e.repsMin);
+    const max = Number(e.repsMax);
+    if (!Number.isInteger(min) || !Number.isInteger(max) || min < 1 || min > max || max > 100) {
+      return { error: 'Rango de repeticiones inválido (1 ≤ mín ≤ máx ≤ 100)' };
+    }
+    value.repsMin = min;
+    value.repsMax = max;
+  }
+  if (e.incrementKg !== undefined && e.incrementKg !== null && e.incrementKg !== '') {
+    const inc = Number(e.incrementKg);
+    if (!Number.isFinite(inc) || inc <= 0 || inc > 50) {
+      return { error: 'Incremento inválido (entre 0 y 50 kg)' };
+    }
+    value.incrementKg = inc;
+  }
+  return { value };
+}
+
+function mapRoutineExercises(exercises) {
+  const out = [];
+  for (let i = 0; i < exercises.length; i++) {
+    const r = mapRoutineExercise(exercises[i], i);
+    if (r.error) return { error: r.error };
+    out.push(r.value);
+  }
+  return { value: out };
+}
+
+/** Series reales de un ejercicio del workout; acota valores y descarta basura. */
+function parseSetLogs(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 20).map(s => {
+    const rir = s && s.rir !== undefined && s.rir !== null ? parseInt(s.rir) : null;
+    return {
+      weightKg: Math.min(500, Math.max(0, parseFloat(s?.weightKg) || 0)),
+      reps: Math.min(200, Math.max(0, parseInt(s?.reps) || 0)),
+      seconds: Math.min(3600, Math.max(0, parseInt(s?.seconds) || 0)),
+      rir: Number.isInteger(rir) ? Math.min(10, Math.max(-1, rir)) : null
+    };
+  });
+}
+
+function progressToResponse(p) {
+  return {
+    exerciseId: p.exercise,
+    exerciseName: p.exerciseName || '',
+    currentWeightKg: p.currentWeightKg || 0,
+    currentSeconds: p.currentSeconds || 0,
+    unit: p.unit || 'kg',
+    loadNote: p.loadNote || '',
+    status: p.status || 'calibrating',
+    bridgeTargetKg: p.bridgeTargetKg || 0,
+    bridgeHeavySets: p.bridgeHeavySets || 0,
+    stallCount: p.stallCount || 0,
+    lastSession: p.lastSession || null,
+    next: p.next && p.next.action ? p.next : null
+  };
+}
+
+/**
+ * Corre el motor de progresión para cada ejercicio del workout y hace upsert
+ * de ExerciseProgress. Devuelve la lista `progression` para la respuesta.
+ */
+async function updateProgression(userId, routineId, exercises) {
+  const withLogs = exercises.filter(e => e.exercise && e.setLogs && e.setLogs.length > 0);
+  if (!withLogs.length) return [];
+
+  let routine = null;
+  if (routineId && mongoose.Types.ObjectId.isValid(routineId)) {
+    routine = await Routine.findOne({ _id: routineId, user: userId }).lean();
+  }
+  const ids = withLogs.map(e => e.exercise);
+  const states = await ExerciseProgress.find({ user: userId, exercise: { $in: ids } }).lean();
+  const stateById = new Map(states.map(s => [s.exercise, s]));
+
+  const progression = [];
+  for (const e of withLogs) {
+    const routineEx = routine?.exercises?.find(r => r.exercise === e.exercise);
+    const prescription = parsePrescription(e.prescription || routineEx || {
+      sets: e.setLogs.length,
+      reps: e.repsCompleted
+    });
+    const prev = stateById.get(e.exercise) || null;
+    const { state, suggestion } = computeNext(prescription, prev, e.setLogs);
+    const { _id, user, exercise, createdAt, updatedAt, __v, ...fields } = state;
+    await ExerciseProgress.updateOne(
+      { user: userId, exercise: e.exercise },
+      { $set: { ...fields, exerciseName: e.exerciseName || prev?.exerciseName || '' } },
+      { upsert: true }
+    );
+    if (suggestion) progression.push({ exerciseId: e.exercise, exerciseName: e.exerciseName || '', ...suggestion });
+  }
+  return progression;
+}
 
 function exerciseToResponse(ex) {
   const extUrl = ex.gifUrl || ex.imageUrl || '';
@@ -302,17 +419,13 @@ router.post('/routines', auth, async (req, res) => {
       return res.status(409).json({ error: 'Ya tienes una rutina con ese nombre' });
     }
 
+    const mapped = mapRoutineExercises(exercises);
+    if (mapped.error) return res.status(400).json({ error: mapped.error });
+
     const routine = new Routine({
       user: req.user._id,
       name: name.trim(),
-      exercises: exercises.map((e, i) => ({
-        exercise: e.exerciseId || e.exercise,
-        exerciseName: (e.exerciseName || e.name || '').toString().slice(0, 200),
-        sets: Math.min(100, Math.max(1, parseInt(e.sets) || 3)),
-        reps: (e.reps || '10').toString().slice(0, 20),
-        restTime: Math.min(3600, Math.max(0, parseInt(e.restTime) || 60)),
-        order: i
-      })),
+      exercises: mapped.value,
       isWarmup: isWarmup || false
     });
 
@@ -370,14 +483,9 @@ router.put('/routines/:id', auth, async (req, res) => {
       if (exercises.length > 50) {
         return res.status(400).json({ error: 'Máximo 50 ejercicios por rutina' });
       }
-      routine.exercises = exercises.map((e, i) => ({
-        exercise: e.exerciseId || e.exercise,
-        exerciseName: (e.exerciseName || e.name || '').toString().slice(0, 200),
-        sets: Math.min(100, Math.max(1, parseInt(e.sets) || 3)),
-        reps: (e.reps || '10').toString().slice(0, 20),
-        restTime: Math.min(3600, Math.max(0, parseInt(e.restTime) || 60)),
-        order: i
-      }));
+      const mapped = mapRoutineExercises(exercises);
+      if (mapped.error) return res.status(400).json({ error: mapped.error });
+      routine.exercises = mapped.value;
     }
     if (isWarmup !== undefined) routine.isWarmup = isWarmup;
 
@@ -414,32 +522,73 @@ router.post('/workouts', auth, async (req, res) => {
       return res.status(400).json({ error: 'Máximo 50 ejercicios por entrenamiento' });
     }
 
-    const workout = new Workout({
-      user: req.user._id,
-      routine: routineId || null,
-      routineName: routineName || '',
-      date: new Date(),
-      duration: duration || 0,
-      exercises: (exercises || []).map(e => ({
+    const validRoutineId = routineId && mongoose.Types.ObjectId.isValid(routineId) ? routineId : null;
+
+    const mappedExercises = (exercises || []).map(e => {
+      const setLogs = parseSetLogs(e.setLogs);
+      if (setLogs.length > 0) {
+        // Con detalle por serie, el resumen se calcula en el servidor.
+        return {
+          exercise: e.exerciseId,
+          exerciseName: (e.exerciseName || '').toString().slice(0, 200),
+          setsCompleted: setLogs.length,
+          repsCompleted: setLogs.map(s => (s.seconds > 0 && s.reps === 0 ? `${s.seconds}s` : String(s.reps))).join(',').slice(0, 50),
+          weightKg: Math.max(...setLogs.map(s => s.weightKg)),
+          setLogs
+        };
+      }
+      return {
         exercise: e.exerciseId,
         exerciseName: (e.exerciseName || '').toString().slice(0, 200),
         setsCompleted: Math.max(0, parseInt(e.setsCompleted) || 0),
         repsCompleted: (e.repsCompleted || '').toString().slice(0, 50),
         weightKg: Math.min(500, Math.max(0, parseFloat(e.weightKg) || 0))
-      }))
+      };
+    });
+
+    const workout = new Workout({
+      user: req.user._id,
+      routine: validRoutineId,
+      routineName: routineName || '',
+      date: new Date(),
+      duration: duration || 0,
+      exercises: mappedExercises
     });
 
     await workout.save();
 
-    if (exercises && exercises.length > 0) {
-      for (const e of exercises) {
-        const w = parseFloat(e.weightKg) || 0;
-        if (w > 0 && w <= 500 && e.exerciseId) {
-          const prev = await PersonalRecord.findOne({ user: req.user._id, exercise: e.exerciseId });
+    // Progresión de carga: un fallo del motor nunca impide guardar el workout.
+    let progression = [];
+    try {
+      const forEngine = mappedExercises.map((mapped, i) => {
+        // Prescripción enviada por la app (la usada hoy); validada igual que una rutina.
+        const raw = exercises[i] && exercises[i].prescription;
+        const prescription = raw && typeof raw === 'object'
+          ? mapRoutineExercise({ ...raw, exerciseId: mapped.exercise }, 0).value
+          : undefined;
+        const e = { ...mapped, prescription };
+        if (e.setLogs) return e;
+        // Versión antigua de la app: sesión aproximada solo si hay reps numéricas y peso.
+        const reps = parseInt(e.repsCompleted);
+        if (e.setsCompleted > 0 && e.weightKg > 0 && /^\d+$/.test(e.repsCompleted.trim()) && reps > 0) {
+          return { ...e, setLogs: Array.from({ length: Math.min(20, e.setsCompleted) }, () => ({ weightKg: e.weightKg, reps })) };
+        }
+        return e;
+      });
+      progression = await updateProgression(req.user._id, validRoutineId, forEngine);
+    } catch (err) {
+      console.error('Error en progresión de carga:', err.message);
+    }
+
+    if (mappedExercises.length > 0) {
+      for (const e of mappedExercises) {
+        const w = e.weightKg || 0;
+        if (w > 0 && w <= 500 && e.exercise) {
+          const prev = await PersonalRecord.findOne({ user: req.user._id, exercise: e.exercise });
           if (!prev || w > prev.maxWeightKg) {
             await PersonalRecord.findOneAndUpdate(
-              { user: req.user._id, exercise: e.exerciseId },
-              { user: req.user._id, exercise: e.exerciseId, exerciseName: e.exerciseName || '', maxWeightKg: w },
+              { user: req.user._id, exercise: e.exercise },
+              { user: req.user._id, exercise: e.exercise, exerciseName: e.exerciseName || '', maxWeightKg: w },
               { upsert: true, new: true }
             );
           }
@@ -476,9 +625,61 @@ router.post('/workouts', auth, async (req, res) => {
       await req.user.save();
     }
 
-    res.status(201).json({ workout, xpGained: totalXp });
+    res.status(201).json({ workout, xpGained: totalXp, progression });
   } catch (error) {
     res.status(500).json({ error: 'Error al registrar entrenamiento' });
+  }
+});
+
+// Estado y sugerencia vigente por ejercicio, para precargar el entrenamiento.
+router.get('/progress', auth, async (req, res) => {
+  try {
+    const filter = { user: req.user._id };
+    const ids = (req.query.exerciseIds || '').toString().split(',').map(s => s.trim()).filter(Boolean).slice(0, 100);
+    if (ids.length) filter.exercise = { $in: ids };
+    const list = await ExerciseProgress.find(filter).sort({ updatedAt: -1 }).limit(200).lean();
+    res.json({ progress: list.map(progressToResponse) });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener progresión' });
+  }
+});
+
+// Ajuste manual de la base: reinicia estancamiento y puente.
+router.put('/progress/:exerciseId', auth, async (req, res) => {
+  try {
+    const { currentWeightKg, unit, loadNote, exerciseName } = req.body;
+    const set = {};
+    if (currentWeightKg !== undefined) {
+      const w = Number(currentWeightKg);
+      if (!Number.isFinite(w) || w < 0 || w > 500) {
+        return res.status(400).json({ error: 'currentWeightKg debe estar entre 0 y 500' });
+      }
+      Object.assign(set, {
+        currentWeightKg: w,
+        previousWeightKg: 0,
+        status: w > 0 ? 'progressing' : 'calibrating',
+        stallCount: 0,
+        bridgeTargetKg: 0,
+        bridgeHeavySets: 0,
+        next: null
+      });
+    }
+    if (unit !== undefined) {
+      if (unit !== 'kg' && unit !== 'lb') return res.status(400).json({ error: 'unit debe ser kg o lb' });
+      set.unit = unit;
+    }
+    if (loadNote !== undefined) set.loadNote = loadNote.toString().slice(0, 60);
+    if (exerciseName !== undefined) set.exerciseName = exerciseName.toString().slice(0, 200);
+    if (!Object.keys(set).length) return res.status(400).json({ error: 'Nada que actualizar' });
+
+    const progress = await ExerciseProgress.findOneAndUpdate(
+      { user: req.user._id, exercise: req.params.exerciseId.toString().slice(0, 100) },
+      { $set: set },
+      { upsert: true, new: true, lean: true }
+    );
+    res.json({ progress: progressToResponse(progress) });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al actualizar progresión' });
   }
 });
 

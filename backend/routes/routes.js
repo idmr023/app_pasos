@@ -6,7 +6,8 @@ const auth = require('../middleware/auth');
 const Route = require('../models/Route');
 const StravaState = require('../models/StravaState');
 const User = require('../models/User');
-const { encrypt, decrypt } = require('../utils/tokenEncryption');
+const { encrypt } = require('../utils/tokenEncryption');
+const { getStravaAccessToken, StravaError } = require('../services/stravaClient');
 
 const router = express.Router();
 
@@ -458,28 +459,14 @@ router.get('/strava/status/:state', auth, async (req, res) => {
 router.post('/strava/sync', auth, async (req, res) => {
   try {
     const user = req.user;
-    if (!user.strava || !user.strava.accessToken) {
-      return res.status(400).json({ error: 'Strava no está conectado' });
-    }
-
-    let token = decrypt(user.strava.accessToken);
-
-    if (!token && user.strava.expiresAt && Date.now() / 1000 > user.strava.expiresAt) {
-      return res.status(401).json({ error: 'La conexión con Strava expiró, vuelve a conectar' });
-    }
-
-    if (Date.now() / 1000 > user.strava.expiresAt) {
-      const refreshRes = await axios.post('https://www.strava.com/oauth/token', {
-        client_id: process.env.STRAVA_CLIENT_ID,
-        client_secret: process.env.STRAVA_CLIENT_SECRET,
-        grant_type: 'refresh_token',
-        refresh_token: decrypt(user.strava.refreshToken)
-      });
-      token = refreshRes.data.access_token;
-      user.strava.accessToken = encrypt(token);
-      user.strava.refreshToken = encrypt(refreshRes.data.refresh_token);
-      user.strava.expiresAt = refreshRes.data.expires_at;
-      await user.save();
+    let token;
+    try {
+      token = await getStravaAccessToken(user);
+    } catch (stravaErr) {
+      if (stravaErr instanceof StravaError) {
+        return res.status(stravaErr.status).json({ error: stravaErr.message });
+      }
+      throw stravaErr;
     }
 
     const activitiesRes = await axios.get('https://www.strava.com/api/v3/athlete/activities?per_page=10', {

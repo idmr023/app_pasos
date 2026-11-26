@@ -86,6 +86,12 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
     _messageController.clear();
   }
 
+  String _formatEta(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    return h > 0 ? '$h h ${m.toString().padLeft(2, '0')} min' : '$m min';
+  }
+
   void _centerOnRunner(TrackingProvider provider) {
     if (!_followRunner) return;
     final loc = provider.currentRunnerLocation;
@@ -165,6 +171,10 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
   Widget _buildSpectatorBody(TrackingProvider provider) {
     final currentLoc = provider.currentRunnerLocation;
     final routePoints = provider.routePoints;
+    final plannedPoints = provider.plannedRoutePoints;
+    final plannedRoute = provider.plannedRoute;
+    final routeProgress = provider.routeProgress;
+    final eta = provider.estimatedRemaining;
 
     // Centrar el mapa en el corredor cuando llega una nueva posición
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -222,6 +232,30 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
                   TextSourceAttribution('© OpenStreetMap contributors © CARTO'),
                 ],
               ),
+              // Ruta planificada (.gpx del corredor) debajo del recorrido real.
+              if (plannedPoints.length > 1)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: plannedPoints,
+                      strokeWidth: 7,
+                      color: Colors.white.withValues(alpha: 0.35),
+                      borderStrokeWidth: 1.5,
+                      borderColor: Colors.black.withValues(alpha: 0.25),
+                    ),
+                  ],
+                ),
+              if (plannedPoints.length > 1)
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: plannedPoints.last,
+                      width: 36,
+                      height: 36,
+                      child: const Icon(Icons.sports_score, color: AppTheme.secondary, size: 32),
+                    ),
+                  ],
+                ),
               if (routePoints.length > 1)
                 PolylineLayer(
                   polylines: [
@@ -288,6 +322,55 @@ class _TrackingSpectatorScreenState extends State<TrackingSpectatorScreen> {
             ),
           ),
         ),
+
+        // Progreso sobre la ruta planificada: cuánto lleva y cuánto falta.
+        if (plannedRoute != null)
+          Positioned(
+            top: (provider.trackingStopped ? 60 : 12) + 66,
+            left: 12,
+            right: 64,
+            child: Card(
+              color: AppTheme.surface.withValues(alpha: 0.92),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      routeProgress == null
+                          ? '${plannedRoute.name} · ${plannedRoute.totalKm.toStringAsFixed(1)} km'
+                          : 'Faltan ${(routeProgress.remainingMeters / 1000).toStringAsFixed(1)} km de ${plannedRoute.totalKm.toStringAsFixed(1)}'
+                              '${eta != null ? ' · llega en ~${_formatEta(eta)}' : ''}',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                    ),
+                    if (routeProgress != null) ...[
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: plannedRoute.totalMeters > 0
+                              ? (routeProgress.alongMeters / plannedRoute.totalMeters).clamp(0.0, 1.0)
+                              : 0,
+                          minHeight: 6,
+                          backgroundColor: AppTheme.surfaceAlt,
+                          color: AppTheme.secondary,
+                        ),
+                      ),
+                      if (routeProgress.isOffRoute)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            'El corredor está a ${routeProgress.offRouteMeters.round()} m de la ruta',
+                            style: const TextStyle(color: AppTheme.gold, fontSize: 11),
+                          ),
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
 
         // Botón para reanudar el seguimiento del corredor
         if (!_followRunner && runnerLatLng != null)

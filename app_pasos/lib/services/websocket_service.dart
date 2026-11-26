@@ -34,7 +34,8 @@ class WebSocketService {
     bool isRunner = false,
     String? guestName,
   }) async {
-    disconnect();
+    // Reconectar a la misma sala como corredor conserva los puntos pendientes.
+    disconnect(keepPending: isRunner && roomCode == _roomCode);
     _roomCode = roomCode;
     _isRunner = isRunner;
     _guestName = guestName;
@@ -58,8 +59,11 @@ class WebSocketService {
         // URL y puede conservar el query (roomCode/isRunner) de la sala
         // anterior al cambiar de carrera.
         .enableForceNew()
-        .setReconnectionAttempts(10)
+        // Reintentar para siempre: en una carrera larga con mala señal la
+        // red puede caer muchas veces; antes se rendía tras 10 intentos.
+        .setReconnectionAttempts(double.infinity)
         .setReconnectionDelay(1000)
+        .setReconnectionDelayMax(5000)
         .disableAutoConnect()
         .setQuery({
           'roomCode': roomCode,
@@ -76,6 +80,7 @@ class WebSocketService {
 
     _socket!.onConnect((_) {
       _isConnected = true;
+      _flushPending();
       // También se dispara en cada reconexión automática.
       _eventsController.add({'type': 'connection', 'data': true});
       if (!completer.isCompleted) completer.complete();
@@ -101,6 +106,9 @@ class WebSocketService {
     for (final event in [
       'connected',
       'locationUpdate',
+      'locationBatch',
+      'routeUpdated',
+      'trackingResumed',
       'chatMessage',
       'powerUp',
       'trackingStopped',
@@ -123,9 +131,78 @@ class WebSocketService {
     }
   }
 
+  // --- Cola offline de ubicaciones (corredor) ---
+  // Sin señal, los puntos se guardan aquí y se envían en lotes con ack al
+  // reconectar (antes se descartaban y el mapa del espectador quedaba con
+  // huecos). Tope ~6 h a 1 punto cada 3 s.
+  static const int _maxPending = 7200;
+  static const int _batchSize = 200;
+  final List<Map<String, dynamic>> _pending = [];
+  bool _flushing = false;
+
+  /// Puntos GPS aún no confirmados por el servidor.
+  int get pendingLocations => _pending.length;
+
+  /// Encola el punto y lo envía con ack. Todo pasa por la cola: con mala
+  /// señal el socket puede seguir "conectado" con el transporte muerto
+  /// (hasta ~85 s hasta que el ping lo detecta) y un emit sin ack se perdería.
   void sendLocation(Map<String, dynamic> data) {
-    if (!_isConnected || _socket == null) return;
-    _socket!.emit('locationUpdate', data);
+    _pending.add(data);
+    if (_pending.length > _maxPending) {
+      // Se descarta uno de cada dos puntos de la mitad más antigua: se pierde
+      // resolución del mapa, no distancia (la distancia viaja acumulada).
+      // No se toca el lote que puede estar en vuelo (primeros _batchSize).
+      final from = _batchSize;
+      final half = _pending.length ~/ 2;
+      final thinned = <Map<String, dynamic>>[];
+      for (var i = from; i < half; i += 2) {
+        thinned.add(_pending[i]);
+      }
+      _pending.replaceRange(from, half, thinned);
+    }
+    if (_isConnected) _flushPending();
+  }
+
+  /// Intenta entregar los puntos pendientes antes de cerrar la carrera.
+  /// Devuelve true si no quedó nada pendiente.
+  Future<bool> flushPendingLocations({Duration timeout = const Duration(seconds: 20)}) async {
+    final deadline = DateTime.now().add(timeout);
+    while (_pending.isNotEmpty && DateTime.now().isBefore(deadline)) {
+      if (_isConnected) await _flushPending();
+      if (_pending.isEmpty) break;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    return _pending.isEmpty;
+  }
+
+  Future<void> _flushPending() async {
+    if (_flushing || !_isRunner) return;
+    _flushing = true;
+    try {
+      while (_pending.isNotEmpty && _isConnected && _socket != null) {
+        final batch = _pending.take(_batchSize).toList();
+        final ok = await _emitBatch(batch);
+        if (!ok) break; // se reintenta en la próxima reconexión
+        _pending.removeRange(0, batch.length);
+        _eventsController.add({'type': 'pendingLocations', 'data': _pending.length});
+      }
+    } finally {
+      _flushing = false;
+    }
+  }
+
+  Future<bool> _emitBatch(List<Map<String, dynamic>> batch) {
+    final completer = Completer<bool>();
+    final timer = Timer(const Duration(seconds: 15), () {
+      if (!completer.isCompleted) completer.complete(false);
+    });
+    _socket!.emitWithAck('locationBatch', {'points': batch}, ack: (resp) {
+      timer.cancel();
+      if (!completer.isCompleted) {
+        completer.complete(resp is Map && resp['ok'] == true);
+      }
+    });
+    return completer.future;
   }
 
   bool sendChatMessage(String message) {
@@ -151,7 +228,8 @@ class WebSocketService {
     _socket!.emit('stopTracking');
   }
 
-  void disconnect() {
+  void disconnect({bool keepPending = false}) {
+    if (!keepPending) _pending.clear();
     _socket?.dispose();
     _socket = null;
     _isConnected = false;

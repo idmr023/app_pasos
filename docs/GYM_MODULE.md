@@ -37,7 +37,10 @@ Hay **1,327+ ejercicios** sincronizados desde la **WorkoutX API** (`api.workoutx
     sets:     Number,        // 3
     reps:     String,        // "10" o "30s"
     restTime: Number,        // segundos
-    order:    Number         // posición en la rutina
+    order:    Number,        // posición en la rutina
+    repsMin:  Number,        // rango para la progresión (null → se deriva de reps)
+    repsMax:  Number,        // con rango, reps se guarda también como "6-10"
+    incrementKg: Number      // salto de peso (default 2.5)
   }],
   isWarmup:  Boolean         // true = aparece en sección calentamiento
 }
@@ -55,9 +58,30 @@ Hay **1,327+ ejercicios** sincronizados desde la **WorkoutX API** (`api.workoutx
   exercises: [{
     exercise:      ObjectId,
     exerciseName:  String,
-    setsCompleted: Number,
-    repsCompleted: String
+    setsCompleted: Number,   // con setLogs, lo calcula el servidor
+    repsCompleted: String,
+    weightKg:      Number,   // peso máximo (PR y logros)
+    setLogs: [{ weightKg, reps, seconds, rir }]  // series reales (opcional)
   }]
+}
+```
+
+### ExerciseProgress (`backend/models/ExerciseProgress.js`)
+
+Estado de progresión por usuario y ejercicio. Índice único `{ user: 1, exercise: 1 }`.
+
+```javascript
+{
+  user, exercise, exerciseName,
+  currentWeightKg,   // peso base; 0 = sin calibrar
+  previousWeightKg,  // para volver atrás (R5)
+  currentSeconds,    // ejercicios por tiempo
+  unit: 'kg' | 'lb', // solo visualización, se recuerda por ejercicio
+  loadNote,          // "por lado", "por mancuerna"...
+  status: 'calibrating' | 'progressing' | 'bridge',
+  bridgeTargetKg, bridgeHeavySets, stallCount,
+  lastSession: { date, weightKg, reps: [Number] },
+  next: { action, weightKg, targetReps, heavySets, baseWeightKg, targetSeconds, message }
 }
 ```
 
@@ -74,9 +98,34 @@ Hay **1,327+ ejercicios** sincronizados desde la **WorkoutX API** (`api.workoutx
 | GET | `/api/gym/routines/:id` | Detalle de rutina |
 | PUT | `/api/gym/routines/:id` | Editar rutina |
 | DELETE | `/api/gym/routines/:id` | Eliminar rutina |
-| POST | `/api/gym/workouts` | Registrar sesión |
+| POST | `/api/gym/workouts` | Registrar sesión. Acepta `routineId` y por ejercicio `setLogs` + `prescription`; responde `progression[]` |
+| GET | `/api/gym/progress?exerciseIds=a,b` | Estado y sugerencia vigente por ejercicio |
+| PUT | `/api/gym/progress/:exerciseId` | Ajuste manual: `currentWeightKg` (reinicia puente y estancamiento), `unit`, `loadNote` |
 | GET | `/api/gym/streak` | Racha de semanas |
 | GET | `/api/gym/workouts?limit=` | Historial de entrenamientos |
+
+---
+
+## Progresión de carga (doble progresión)
+
+Motor puro en `backend/services/progressionService.js` (`computeNext(prescription, state, session)`), tests en `backend/tests/progressionService.test.js` (`npm test`). Corre en `POST /workouts` tras guardar; un fallo del motor no impide guardar el workout. La prescripción sale de `exercises[].prescription` (lo usado hoy), si no de la rutina (`routineId`), si no de `setLogs`/`repsCompleted`. Versiones antiguas sin `setLogs`: sesión aproximada solo si `repsCompleted` es numérico y hay peso.
+
+| # | Regla |
+|---|---|
+| R1 | Base: sin calibrar, la base es la serie con 2-3 reps en reserva (`rir`) o el mayor peso que llegó a `repsMin`. Si no se puede, sugiere un escalón menos (`calibrate`). |
+| R2 | Rango `repsMin`-`repsMax` por ejercicio (o derivado de `reps`: `"10"` → 10-10). |
+| R3 | Todas las series ≥ `repsMax` → peso + incremento, objetivo vuelve a `repsMin`. |
+| R4 | Si no → mismo peso, objetivo = la serie más baja + 1. |
+| R5 | Primera serie < `max(5, repsMin - 2)` → volver al peso anterior. |
+| R6 | Salto > 20 % → puente: 1 serie pesada; +1 cada vez que la última pesada llega a la tolerancia; con todas pesadas el peso nuevo es la base. |
+| R7 | 2 sesiones seguidas, mismo peso, sin sumar reps totales → bajar 10 % (redondeado) y volver a subir. |
+| R8 | Por tiempo (`"45s"`): todas las series completas → +5 s. |
+| R9 | Siempre en kg; `unit` es solo visualización. |
+| R10 | La progresión va por `exerciseId` (cada máquina = un ejercicio). |
+
+Acciones: `calibrate`, `increase`, `hold`, `bridge`, `decrease`, `deload`. Todo peso se redondea al incremento. Si el usuario usa otro peso del sugerido, manda lo que hizo de verdad.
+
+Flutter: `WorkoutScreen` carga `GET /progress` al abrir, precarga el peso por serie (en puente, las primeras `heavySets` con el peso nuevo), muestra "Objetivo de hoy" (`Selector<GymProvider, ExerciseProgress?>`), registra reps por serie (precargadas con el objetivo), pregunta reps en reserva mientras calibra y muestra "Próxima sesión" al terminar. El rango y el incremento se editan en `RoutineBuilderScreen`; la base se ajusta en `ExerciseDetailSheet` ("Tu progresión").
 
 ---
 

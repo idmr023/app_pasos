@@ -18,7 +18,7 @@ function haversine(lat1, lng1, lat2, lng2) {
  *
  * Devuelve las stats actualizadas para poder retransmitirlas por socket.
  */
-async function finalizeSession(session) {
+async function finalizeSession(session, { clientDistanceKm, autoClosed = false } = {}) {
   if (!session) return null;
 
   const points = await TrackingLocation.find({ roomCode: session.code })
@@ -42,6 +42,11 @@ async function finalizeSession(session) {
         );
       }
       totalDistance = meters / 1000;
+    }
+    // El acumulado local del corredor incluye puntos que quizá nunca llegaron
+    // (sin señal al final). Se acepta si es mayor y plausible.
+    if (Number.isFinite(clientDistanceKm) && clientDistanceKm > totalDistance && clientDistanceKm < 500) {
+      totalDistance = clientDistanceKm;
     }
 
     let maxSpeed = 0;
@@ -74,6 +79,7 @@ async function finalizeSession(session) {
     session.endedAt = new Date();
   }
   session.status = 'completed';
+  session.autoClosed = autoClosed;
   await session.save();
 
   return session;

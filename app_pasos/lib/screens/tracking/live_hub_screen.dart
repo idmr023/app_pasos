@@ -1,9 +1,12 @@
+import 'package:app_pasos/utils/gpx.dart';
+import 'package:app_pasos/utils/gpx_picker.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:app_pasos/config/api.dart';
 import 'package:app_pasos/config/theme.dart';
+import 'package:app_pasos/widgets/location_permission_gate.dart';
 import 'tracking_runner_screen.dart';
 import 'tracking_spectator_screen.dart';
 
@@ -43,9 +46,10 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
         final sessions = data['sessions'];
         if (sessions is List && mounted) {
           setState(() {
-            _pastSessions = sessions
-                .map((s) => Map<String, dynamic>.from(s as Map))
-                .toList();
+            _pastSessions =
+                sessions
+                    .map((s) => Map<String, dynamic>.from(s as Map))
+                    .toList();
           });
         }
       }
@@ -142,7 +146,57 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
   Future<void> _startAsRunner() async {
     // Crear sesión real en el backend para obtener un roomCode válido
     // y arrancar la grabación de inmediato (sin elegir meta previa).
+    // Antes de crear la sala: verificar GPS/permisos y explicar lo que falte.
+    if (_isLoading) return;
     setState(() => _isLoading = true);
+    final canTrack = await ensureTrackingLocationAccess(context);
+    if (!mounted) return;
+    if (!canTrack) {
+      setState(() => _isLoading = false);
+      return;
+    }
+    // Ruta planificada opcional (.gpx): los espectadores verán cuánto falta.
+    final choice = await showDialog<String>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: AppTheme.surface,
+            title: const Text('¿Tienes la ruta en GPX?'),
+            content: const Text(
+              'Si la cargas, tus espectadores verán el recorrido completo, cuánto llevas y cuánto falta. '
+              'También puedes cargarla después desde la carrera.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, 'none'),
+                child: const Text('Sin ruta'),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(ctx, 'gpx'),
+                icon: const Icon(Icons.route),
+                label: const Text('Cargar GPX'),
+              ),
+            ],
+          ),
+    );
+    if (!mounted) return;
+    if (choice == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
+    GpxRoute? plannedRoute;
+    if (choice == 'gpx') {
+      plannedRoute = await pickGpxRoute(context);
+      if (!mounted) return;
+      if (plannedRoute == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+    }
     String? roomCode;
     String? errorMsg;
     try {
@@ -150,7 +204,8 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
     } on Exception catch (e) {
       errorMsg = e.toString().replaceFirst('Exception: ', '');
     } catch (e) {
-      errorMsg = 'No se pudo conectar con el servidor. ¿Está el backend activo?';
+      errorMsg =
+          'No se pudo conectar con el servidor. ¿Está el backend activo?';
     }
     if (!mounted) return;
     setState(() => _isLoading = false);
@@ -168,6 +223,7 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
               roomCode: roomCode!,
               isRunner: true,
               goalDistance: 0, // Sin meta: se muestra la distancia en vivo
+              plannedRoute: plannedRoute,
             ),
       ),
     ).then((_) => _loadPastSessions());
@@ -351,9 +407,10 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
                           color: AppTheme.surface,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: status == 'active'
-                                ? AppTheme.primary.withValues(alpha: 0.4)
-                                : Colors.white.withValues(alpha: 0.06),
+                            color:
+                                status == 'active'
+                                    ? AppTheme.primary.withValues(alpha: 0.4)
+                                    : Colors.white.withValues(alpha: 0.06),
                           ),
                         ),
                         child: Row(
@@ -363,9 +420,10 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
                                   ? Icons.live_tv
                                   : Icons.check_circle_outline,
                               size: 20,
-                              color: status == 'active'
-                                  ? AppTheme.primary
-                                  : AppTheme.grey,
+                              color:
+                                  status == 'active'
+                                      ? AppTheme.primary
+                                      : AppTheme.grey,
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -413,9 +471,10 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
                                       ? 'En curso'
                                       : 'Finalizada',
                                   style: AppTheme.bodySmall.copyWith(
-                                    color: status == 'active'
-                                        ? AppTheme.primary
-                                        : AppTheme.darkGrey,
+                                    color:
+                                        status == 'active'
+                                            ? AppTheme.primary
+                                            : AppTheme.darkGrey,
                                   ),
                                 ),
                               ],

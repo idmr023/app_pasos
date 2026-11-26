@@ -3,6 +3,7 @@ const CircuitBreaker = require('opossum');
 const Workout = require('../models/Workout');
 const Routine = require('../models/Routine');
 const PersonalRecord = require('../models/PersonalRecord');
+const ExerciseProgress = require('../models/ExerciseProgress');
 const Exercise = require('../models/Exercise');
 const StepEntry = require('../models/StepEntry');
 const Challenge = require('../models/Challenge');
@@ -234,6 +235,20 @@ async function buildUserContext(userId) {
       `- ${r.exerciseName || 'Ejercicio'}: ${r.maxWeightKg} kg`
     ).join('\n');
     contextParts.push(`MARCAS PERSONALES:\n${prText}`);
+  }
+
+  const progress = await ExerciseProgress.find({ user: userId })
+    .select('exerciseName currentWeightKg status next')
+    .sort({ updatedAt: -1 })
+    .limit(8)
+    .lean();
+
+  if (progress.length > 0) {
+    const statusLabel = { calibrating: 'calibrando', progressing: 'progresando', bridge: 'puente' };
+    const pText = progress.map(p =>
+      `- ${p.exerciseName || 'Ejercicio'}: base ${p.currentWeightKg || 0} kg (${statusLabel[p.status] || p.status})${p.next?.message ? ` → próxima: ${p.next.message}` : ''}`
+    ).join('\n');
+    contextParts.push(`PROGRESIÓN DE CARGA (doble progresión; la app sugiere el peso de la próxima sesión):\n${pText}`);
   }
 
   const ejercicios = await Exercise.find()

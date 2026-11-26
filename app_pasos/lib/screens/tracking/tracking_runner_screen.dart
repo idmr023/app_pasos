@@ -12,6 +12,9 @@ import 'package:app_pasos/widgets/power_up_bar.dart';
 import 'package:app_pasos/widgets/power_up_burst_overlay.dart';
 import 'package:app_pasos/models/power_up.dart';
 import 'package:app_pasos/screens/share_aura/cover_editor_screen.dart';
+import 'package:app_pasos/utils/gpx.dart';
+import 'package:app_pasos/utils/gpx_picker.dart';
+import 'package:app_pasos/widgets/pocket_lock_overlay.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -19,12 +22,14 @@ class TrackingRunnerScreen extends StatefulWidget {
   final String roomCode;
   final bool isRunner;
   final double goalDistance; // Meta en km (0 = sin meta)
+  final GpxRoute? plannedRoute; // Ruta .gpx elegida antes de empezar
 
   const TrackingRunnerScreen({
     super.key,
     required this.roomCode,
     required this.isRunner,
     this.goalDistance = 5.0,
+    this.plannedRoute,
   });
 
   @override
@@ -35,6 +40,7 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
   final TextEditingController _messageController = TextEditingController();
   String? _startError;
   bool _starting = true;
+  bool _pocketLocked = false;
   // Referencia cacheada: en dispose() no se puede usar context.read.
   late final TrackingProvider _tracking;
 
@@ -58,6 +64,7 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
         widget.roomCode,
         widget.goalDistance,
         widget.isRunner,
+        plannedRoute: widget.plannedRoute,
       );
     } catch (e) {
       if (!mounted) return;
@@ -130,13 +137,15 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
       ],
     };
 
-    // 2) Cerrar la sesión en el backend (persiste totalDistance/avgSpeed/...)
-    //    Si falla, el fallback es el timer de 30s del servidor al desconectar.
+    // 2) Entregar los puntos guardados sin señal y cerrar la sesión en el
+    //    backend (persiste totalDistance/avgSpeed/...). Si no hay red, el
+    //    servidor la cierra solo tras 20 min sin conexión.
     Map<String, dynamic>? serverStats;
     if (!mounted) return;
     final rootNavigator = Navigator.of(context, rootNavigator: true);
     _showClosingDialog(); // sin await: se cierra tras la petición
-    serverStats = await _closeSessionOnBackend();
+    await provider.flushPendingLocations();
+    serverStats = await _closeSessionOnBackend(localDistance);
     rootNavigator.pop(); // cierra el diálogo de "Guardando..."
 
     // 3) Liberar socket y resetear estado
@@ -145,8 +154,10 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
     // 4) Resumen final: stats del server si están; si no, calculadas locally
     final elapsedSec = localElapsed.inSeconds;
     final serverDistance = (serverStats?['totalDistance'] as num?)?.toDouble();
+    // El acumulado local es la referencia: incluye tramos que quizá no
+    // llegaron al servidor por falta de señal.
     var distanceKm =
-        (serverDistance != null && serverDistance > 0)
+        (serverDistance != null && serverDistance > localDistance)
             ? serverDistance
             : localDistance;
     var avgPace = (serverStats?['avgPace'] as num?)?.toDouble() ?? 0;
@@ -194,34 +205,65 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
     );
   }
 
-  Future<Map<String, dynamic>?> _closeSessionOnBackend() async {
-    try {
-      final token = await const FlutterSecureStorage().read(key: 'auth_token');
-      if (token == null) return null;
+  Future<Map<String, dynamic>?> _closeSessionOnBackend(
+    double localDistanceKm,
+  ) async {
+    final token = await const FlutterSecureStorage().read(key: 'auth_token');
+    if (token == null) return null;
+    // Hasta 3 intentos: en la meta la señal puede ser mala.
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        final response = await http
+            .post(
+              Uri.parse(
+                '${ApiConfig.baseUrl}/tracking/${widget.roomCode}/close',
+              ),
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $token',
+              },
+              body: json.encode({
+                'totalDistance': double.parse(
+                  localDistanceKm.toStringAsFixed(3),
+                ),
+              }),
+            )
+            .timeout(const Duration(seconds: 12));
 
-      final response = await http
-          .post(
-            Uri.parse('${ApiConfig.baseUrl}/tracking/${widget.roomCode}/close'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-            body: json.encode({}),
-          )
-          .timeout(const Duration(seconds: 8));
-
-      if (response.statusCode != 200) return null;
-      final data = json.decode(response.body);
-      final session = data['session'];
-      if (session is Map<String, dynamic>) {
-        // El recap de ánimos viene junto a la sesión en la respuesta de /close.
-        return {...session, 'cheers': data['cheers']};
+        if (response.statusCode != 200) return null;
+        final data = json.decode(response.body);
+        final session = data['session'];
+        if (session is Map<String, dynamic>) {
+          // El recap de ánimos viene junto a la sesión en la respuesta de /close.
+          return {...session, 'cheers': data['cheers']};
+        }
+        return null;
+      } catch (e) {
+        debugPrint(
+          '[Tracking] Error cerrando sesión (intento ${attempt + 1}): $e',
+        );
+        await Future<void>.delayed(const Duration(seconds: 2));
       }
-      return null;
-    } catch (e) {
-      debugPrint('[Tracking] Error cerrando sesión: $e');
-      return null;
     }
+    return null;
+  }
+
+  Future<void> _pickRoute() async {
+    final route = await pickGpxRoute(context);
+    if (route == null || !mounted) return;
+    final error = await context.read<TrackingProvider>().uploadPlannedRoute(
+      route,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          error ??
+              'Ruta "${route.name}" (${route.totalKm.toStringAsFixed(1)} km) compartida con tus espectadores',
+        ),
+        backgroundColor: error == null ? null : AppTheme.error,
+      ),
+    );
   }
 
   Future<void> _showSummaryDialog({
@@ -255,7 +297,11 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.emoji_events, size: 56, color: AppTheme.primary),
+                const Icon(
+                  Icons.emoji_events,
+                  size: 56,
+                  color: AppTheme.primary,
+                ),
                 const SizedBox(height: 16),
                 Text(
                   '${distanceKm.toStringAsFixed(2)} km',
@@ -378,42 +424,79 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
+        if (_pocketLocked) return; // en modo bolsillo el "atrás" no hace nada
         await _exitFlow();
       },
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Tracking en Curso'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.stop),
-              tooltip: 'Detener tracking',
-              onPressed: _exitFlow,
+      child: Stack(
+        children: [
+          Scaffold(
+            appBar: AppBar(
+              title: const Text('Tracking en Curso'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.lock_outline),
+                  tooltip: 'Modo bolsillo (bloquear pantalla)',
+                  onPressed:
+                      _starting || _startError != null
+                          ? null
+                          : () => setState(() => _pocketLocked = true),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.route),
+                  tooltip: 'Cargar ruta GPX',
+                  onPressed:
+                      _starting || _startError != null ? null : _pickRoute,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.stop),
+                  tooltip: 'Detener tracking',
+                  onPressed: _exitFlow,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.share, color: AppTheme.primary),
+                  tooltip: 'Compartir código',
+                  onPressed: () {
+                    final code =
+                        Provider.of<TrackingProvider>(
+                          context,
+                          listen: false,
+                        ).roomCode ??
+                        '';
+                    if (code.isNotEmpty) {
+                      final base = ApiConfig.baseUrl.replaceFirst(
+                        RegExp(r'/api/?$'),
+                        '',
+                      );
+                      final link = '$base/track/$code';
+                      final shareText = '¡Sígueme en mi carrera en vivo! $link';
+                      Share.share(shareText);
+                      Clipboard.setData(ClipboardData(text: link));
+                    }
+                  },
+                ),
+              ],
             ),
-            IconButton(
-              icon: const Icon(Icons.share, color: AppTheme.primary),
-              tooltip: 'Compartir código',
-              onPressed: () {
-                final code =
-                    Provider.of<TrackingProvider>(
-                      context,
-                      listen: false,
-                    ).roomCode ??
-                    '';
-                if (code.isNotEmpty) {
-                  final base = ApiConfig.baseUrl.replaceFirst(
-                    RegExp(r'/api/?$'),
-                    '',
-                  );
-                  final link = '$base/track/$code';
-                  final shareText = '¡Sígueme en mi carrera en vivo! $link';
-                  Share.share(shareText);
-                  Clipboard.setData(ClipboardData(text: link));
-                }
-              },
+            body: _buildBody(),
+          ),
+          // El modo bolsillo cubre toda la pantalla, AppBar incluida (⏹).
+          if (_pocketLocked)
+            Positioned.fill(
+              child: Consumer<TrackingProvider>(
+                builder:
+                    (context, p, _) => PocketLockOverlay(
+                      elapsed: _formatDuration(p.elapsedTime),
+                      distanceKm: p.currentDistance,
+                      remainingKm:
+                          p.routeProgress == null
+                              ? null
+                              : p.routeProgress!.remainingMeters / 1000,
+                      gpsStale: p.gpsStale,
+                      offline: !p.isConnected || p.pendingLocations > 20,
+                      onUnlock: () => setState(() => _pocketLocked = false),
+                    ),
+              ),
             ),
-          ],
-        ),
-        body: _buildBody(),
+        ],
       ),
     );
   }
@@ -492,18 +575,42 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
 
     final hasGps = speedKmh != null || pace > 0 || elapsedSec <= 8;
 
+    final route = provider.plannedRoute;
+    final routeProgress = provider.routeProgress;
     double progress = 0.0;
-    if (widget.goalDistance > 0) {
+    if (route != null && routeProgress != null && route.totalMeters > 0) {
+      progress = (routeProgress.alongMeters / route.totalMeters).clamp(
+        0.0,
+        1.0,
+      );
+    } else if (widget.goalDistance > 0) {
       progress = (distanceKm / widget.goalDistance).clamp(0.0, 1.0);
     }
+    final eta = provider.estimatedRemaining;
 
     return Column(
       children: [
-        if (widget.goalDistance > 0)
+        if (widget.goalDistance > 0 || route != null)
           LinearProgressIndicator(
             value: progress,
             backgroundColor: Colors.grey[900],
             color: AppTheme.primary,
+          ),
+        if (provider.gpsStale)
+          const _StatusBanner(
+            icon: Icons.gps_off,
+            color: AppTheme.gold,
+            text:
+                'Sin señal GPS. El tiempo sigue; los km se recuperan al volver la señal.',
+          ),
+        if (!provider.isConnected || provider.pendingLocations > 20)
+          _StatusBanner(
+            icon: Icons.cloud_off,
+            color: AppTheme.secondary,
+            text:
+                provider.pendingLocations > 0
+                    ? 'Sin internet: ${provider.pendingLocations} puntos guardados, se enviarán al reconectar.'
+                    : 'Reconectando… tu carrera se sigue grabando.',
           ),
         // Dashboard de métricas en vivo
         Padding(
@@ -563,6 +670,32 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
                     ),
                   ],
                 ),
+                if (route != null) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    routeProgress == null
+                        ? '${route.name} · ${route.totalKm.toStringAsFixed(1)} km'
+                        : 'Faltan ${(routeProgress.remainingMeters / 1000).toStringAsFixed(1)} km de ${route.totalKm.toStringAsFixed(1)}'
+                            '${eta != null ? ' · ~${_formatDuration(eta)}' : ''}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (routeProgress != null && routeProgress.isOffRoute)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Fuera de la ruta (${routeProgress.offRouteMeters.round()} m)',
+                        style: const TextStyle(
+                          color: AppTheme.gold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                ],
                 if (!hasGps) ...[
                   const SizedBox(height: 14),
                   const Row(
@@ -740,6 +873,35 @@ class _TrackingRunnerScreenState extends State<TrackingRunnerScreen> {
 
 /// Recap de ánimos para el resumen de fin de carrera: conteo por tipo, top
 /// supporters y algunos ánimos de voz.
+class _StatusBanner extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String text;
+  const _StatusBanner({
+    required this.icon,
+    required this.color,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: color.withValues(alpha: 0.15),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text, style: TextStyle(color: color, fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _CheersRecap extends StatelessWidget {
   final Map<String, dynamic> cheers;
   final String title;

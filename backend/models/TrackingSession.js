@@ -58,6 +58,22 @@ const trackingSessionSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  // true si la cerró el timer por desconexión larga del corredor: se reabre
+  // sola si el corredor vuelve a conectarse (carreras con mala señal).
+  autoClosed: {
+    type: Boolean,
+    default: false,
+  },
+  // Ruta planificada subida por el corredor (.gpx simplificado en la app).
+  plannedRoute: {
+    type: {
+      name: { type: String, default: 'Ruta', maxlength: 80 },
+      points: { type: [[Number]], default: undefined }, // [lat, lng, ele?]
+      totalDistance: { type: Number, default: 0 },      // m
+      elevationGain: { type: Number, default: 0 },      // m
+    },
+    default: undefined,
+  },
 }, {
   timestamps: true,
 });

@@ -11,6 +11,8 @@ import '../models/power_up.dart';
 import '../services/websocket_service.dart';
 import '../services/location_service.dart';
 import '../services/tts_service.dart';
+import '../utils/distance_accumulator.dart';
+import '../utils/gpx.dart';
 
 enum TrackingRole { runner, spectator }
 
@@ -62,8 +64,182 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
   Map<String, dynamic>? _topSupporter; // {name, count}
   DateTime? _powerUpCooldownUntil;
 
+  // --- Robustez GPS / red (carreras largas con mala señal) ---
+  final DistanceAccumulator _distanceAcc = DistanceAccumulator();
+  DateTime? _lastFixAt; // último fix GPS recibido (cualquier precisión)
+  Timer? _gpsWatchdog;
+  bool _gpsStale = false;
+  int _pendingLocations = 0;
+
+  // --- Ruta planificada (GPX) ---
+  GpxRoute? _plannedRoute;
+  RouteProgress? _routeProgress;
+  DateTime? _sessionStartedAt;
+  DateTime? _lastPointAt;
+
   TrackingProvider() {
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  /// Sin fix GPS hace > 45 s (el tiempo sigue corriendo; los km se
+  /// recuperan en línea recta cuando vuelve la señal).
+  bool get gpsStale => _gpsStale;
+
+  /// Puntos guardados sin conexión que aún no llegaron al servidor.
+  int get pendingLocations => _pendingLocations;
+
+  GpxRoute? get plannedRoute => _plannedRoute;
+  RouteProgress? get routeProgress => _routeProgress;
+
+  /// Puntos de la ruta planificada para dibujarla en el mapa.
+  List<LatLng> get plannedRoutePoints =>
+      _plannedRoute?.points.map((p) => LatLng(p.lat, p.lng)).toList() ?? const [];
+
+  /// Tiempo estimado restante según el ritmo medio hasta ahora.
+  Duration? get estimatedRemaining {
+    final progress = _routeProgress;
+    if (progress == null || _currentDistance <= 0.2) return null;
+    Duration? elapsed;
+    if (_role == TrackingRole.runner) {
+      elapsed = _elapsedTime;
+    } else if (_sessionStartedAt != null) {
+      elapsed = (_lastPointAt ?? DateTime.now()).difference(_sessionStartedAt!);
+    }
+    if (elapsed == null || elapsed.inSeconds <= 0) return null;
+    final secPerKm = elapsed.inSeconds / _currentDistance;
+    return Duration(seconds: (secPerKm * progress.remainingMeters / 1000).round());
+  }
+
+  void _updateRouteProgress(double lat, double lng) {
+    final route = _plannedRoute;
+    if (route == null) return;
+    _routeProgress = progressOnRoute(
+      route,
+      lat,
+      lng,
+      // Sin progreso previo se usa la distancia recorrida como pista, para
+      // que en rutas ida y vuelta no caiga en el tramo equivocado.
+      previousAlong: _routeProgress?.alongMeters ??
+          (_currentDistance > 0.5 ? _currentDistance * 1000 - 300 : null),
+    );
+  }
+
+  /// Agrega un punto al recorrido del mapa (solo si se movió ≥ 8 m, para que
+  /// 35 km quepan sin truncar el inicio).
+  void _appendLocation(Map<String, dynamic> point) {
+    final lat = point['latitude'];
+    final lng = point['longitude'];
+    if (lat is! num || lng is! num) return;
+    if (_locations.isNotEmpty) {
+      final last = _locations.last;
+      final d = haversineMeters(
+        (last['latitude'] as num).toDouble(),
+        (last['longitude'] as num).toDouble(),
+        lat.toDouble(),
+        lng.toDouble(),
+      );
+      if (d < 8) return;
+    }
+    _locations.add(point);
+    if (_locations.length > 6000) {
+      // Adelgaza la mitad más antigua en vez de borrar el inicio de la ruta.
+      final half = _locations.length ~/ 2;
+      final thinned = [for (var i = 0; i < half; i += 2) _locations[i]];
+      _locations.replaceRange(0, half, thinned);
+    }
+  }
+
+  /// Sube la ruta GPX planificada a la sala (el corredor). Los espectadores
+  /// la reciben en vivo por `routeUpdated`.
+  Future<String?> uploadPlannedRoute(GpxRoute route) async {
+    final code = _roomCode;
+    if (code == null) return 'No hay sala activa';
+    final simplified = route.simplified(3000);
+    _plannedRoute = simplified;
+    _routeProgress = null;
+    final loc = _currentRunnerLocation;
+    if (loc != null && loc['latitude'] is num && loc['longitude'] is num) {
+      _updateRouteProgress((loc['latitude'] as num).toDouble(), (loc['longitude'] as num).toDouble());
+    }
+    notifyListeners();
+    try {
+      final token = await const FlutterSecureStorage().read(key: 'auth_token');
+      final response = await http
+          .post(
+            Uri.parse('${ApiConfig.baseUrl}/tracking/$code/route'),
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+            body: json.encode(simplified.toJson()),
+          )
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200) {
+        String msg = 'No se pudo subir la ruta (${response.statusCode})';
+        try {
+          msg = (json.decode(response.body)['error'] ?? msg).toString();
+        } catch (_) {}
+        return msg;
+      }
+      return null;
+    } catch (e) {
+      // La ruta queda local para el corredor; se puede reintentar.
+      return 'Sin conexión: la ruta se ve en tu celular pero no se envió a los espectadores. Reintenta luego.';
+    }
+  }
+
+  void _applyPlannedRouteJson(dynamic raw) {
+    if (raw is! Map) {
+      _plannedRoute = null;
+      _routeProgress = null;
+      return;
+    }
+    final route = GpxRoute.fromJson(Map<String, dynamic>.from(raw));
+    if (route.points.length < 2) return;
+    _plannedRoute = route;
+    _routeProgress = null;
+    final loc = _currentRunnerLocation;
+    if (loc != null && loc['latitude'] is num && loc['longitude'] is num) {
+      _updateRouteProgress((loc['latitude'] as num).toDouble(), (loc['longitude'] as num).toDouble());
+    }
+  }
+
+  /// Antes de cerrar la carrera: entrega los puntos guardados sin señal.
+  Future<bool> flushPendingLocations() async {
+    final ok = await _wsService.flushPendingLocations();
+    _pendingLocations = _wsService.pendingLocations;
+    return ok;
+  }
+
+  void _startGpsWatchdog() {
+    _gpsWatchdog?.cancel();
+    _gpsWatchdog = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (!_isTracking || _role != TrackingRole.runner) return;
+      final last = _lastFixAt;
+      final stale = last == null
+          ? (_startTime != null && DateTime.now().difference(_startTime!) > const Duration(seconds: 45))
+          : DateTime.now().difference(last) > const Duration(seconds: 45);
+      if (stale != _gpsStale) {
+        _gpsStale = stale;
+        notifyListeners();
+      }
+      // Si el stream de GPS murió (servicio de ubicación apagado y vuelto a
+      // encender, el SO lo cortó…), se reinicia sin perder la distancia.
+      if (stale && last != null && DateTime.now().difference(last) > const Duration(seconds: 90)) {
+        _restartGpsStream();
+        _lastFixAt = DateTime.now(); // espera otros 90 s antes de reintentar
+      }
+    });
+  }
+
+  Future<void> _restartGpsStream() async {
+    debugPrint('[Tracking] Reiniciando stream GPS (sin fixes)');
+    await _locationService.stopTracking();
+    await _positionSubscription?.cancel();
+    _positionSubscription = _locationService.startTracking().listen(
+      _sendPositionAsRunner,
+      onError: (e) => _setNotice('Error de GPS: $e'),
+    );
   }
 
   // --- Getters ---
@@ -166,15 +342,15 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
         await _wsService.reconnect();
       }
       _isConnected = true;
+      // El GPS corre en un foreground service y sigue con la pantalla
+      // apagada: solo se reinicia si dejó de entregar fixes. Antes se
+      // reiniciaba siempre y se descartaba el tramo entre el último punto y
+      // el primero tras volver a la app.
       if (_role == TrackingRole.runner && _isRunner && _isTracking) {
-        await _locationService.restartTracking();
-        _positionSubscription?.cancel();
-        _lastPosition = null;
-        _lastAcceptedPositionTime = null;
-        _positionSubscription = _locationService.startTracking().listen(
-          _sendPositionAsRunner,
-          onError: (e) => _setNotice('Error de GPS: $e'),
-        );
+        final last = _lastFixAt;
+        if (last == null || DateTime.now().difference(last) > const Duration(seconds: 30)) {
+          await _restartGpsStream();
+        }
       }
       final reloadTasks = <Future<void>>[
         _loadMessageHistory(),
@@ -200,8 +376,9 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> startAsRunner(
     String roomCode,
     double goal,
-    bool isRunner,
-  ) async {
+    bool isRunner, {
+    GpxRoute? plannedRoute,
+  }) async {
     _role = TrackingRole.runner;
     _roomCode = roomCode;
     _isRunner = isRunner;
@@ -226,8 +403,13 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     _positionSubscription?.cancel();
     _positionSubscription = null;
-    _lastPosition = null;
+    _distanceAcc.reset();
+    _lastFixAt = null;
     _lastAcceptedPositionTime = null;
+    _gpsStale = false;
+    _pendingLocations = 0;
+    _plannedRoute = null;
+    _routeProgress = null;
     _locationService.stopTracking();
 
     try {
@@ -252,6 +434,13 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
         _sendPositionAsRunner,
         onError: (e) => _setNotice('Error de GPS: $e'),
       );
+      _startGpsWatchdog();
+
+      if (plannedRoute != null) {
+        uploadPlannedRoute(plannedRoute).then((err) {
+          if (err != null) _setNotice(err);
+        });
+      }
 
       // Mantener la pantalla activa mientras se graba: si el corredor pone
       // el celular en el bolsillo, Android pausaría el stream GPS y los km
@@ -272,54 +461,39 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Position? _lastPosition;
   DateTime? _lastAcceptedPositionTime;
 
   void _sendPositionAsRunner(Position position) {
+    _lastFixAt = DateTime.now();
+    if (_gpsStale) {
+      _gpsStale = false;
+      notifyListeners();
+    }
     final positionAge = DateTime.now().difference(position.timestamp);
+    // Hasta 50 m de precisión se acepta para el mapa (en bolsillo/arena es
+    // común 25–40 m); la distancia aplica su propio umbral más estricto.
     if (positionAge > const Duration(seconds: 30) ||
-        position.timestamp.isBefore(
+        !position.timestamp.isAfter(
           _lastAcceptedPositionTime ?? DateTime(2000),
         ) ||
         !position.accuracy.isFinite ||
         position.accuracy <= 0 ||
-        position.accuracy > 25) {
+        position.accuracy > 50) {
       return;
     }
-
-    if (_lastPosition != null) {
-      final elapsedSeconds =
-          position.timestamp.difference(_lastPosition!.timestamp).inSeconds;
-      if (elapsedSeconds <= 0 || elapsedSeconds > 120) {
-        // Evitamos acumular distancia con puntos viejos o saturados tras
-        // reanudaciones / desconexiones y con la pantalla apagada.
-        _lastPosition = position;
-        _lastAcceptedPositionTime = position.timestamp;
-        return;
-      }
-
-      final deltaMeters = Geolocator.distanceBetween(
-        _lastPosition!.latitude,
-        _lastPosition!.longitude,
-        position.latitude,
-        position.longitude,
-      );
-      final speedMetersPerSecond =
-          position.speed.isFinite && position.speed > 0 ? position.speed : 0;
-      final maxPlausibleDelta = [
-        40.0,
-        (speedMetersPerSecond * elapsedSeconds) +
-            position.accuracy +
-            _lastPosition!.accuracy +
-            25.0,
-      ].reduce((a, b) => a > b ? a : b);
-
-      if (deltaMeters >= 3.0 && deltaMeters <= maxPlausibleDelta) {
-        _currentDistance += deltaMeters / 1000.0;
-      }
-    }
-    _lastPosition = position;
     _lastAcceptedPositionTime = position.timestamp;
+
+    // Distancia robusta: ignora fixes imprecisos, puentea huecos sin señal
+    // en línea recta y no suma el "baile" del GPS estando parado.
+    _distanceAcc.add(
+      lat: position.latitude,
+      lng: position.longitude,
+      accuracy: position.accuracy,
+      timestamp: position.timestamp,
+      speed: position.speed.isFinite ? position.speed : -1,
+    );
+    _currentDistance = _distanceAcc.km;
+    _updateRouteProgress(position.latitude, position.longitude);
 
     // Pace (min/km) desde speed (m/s): pace = 60 / (speed * 3.6)
     double pace = 0;
@@ -341,14 +515,14 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
     };
 
     _currentRunnerLocation = data;
-    _locations.add({
+    _appendLocation({
       'latitude': position.latitude,
       'longitude': position.longitude,
       'timestamp': data['timestamp'],
     });
-    if (_locations.length > 500) _locations.removeAt(0);
 
     _wsService.sendLocation(data);
+    _pendingLocations = _wsService.pendingLocations;
     notifyListeners();
   }
 
@@ -369,7 +543,6 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
     // Cancelar cualquier rastreo GPS previo (p.ej. el del corredor)
     _positionSubscription?.cancel();
     _positionSubscription = null;
-    _lastPosition = null;
     _locationService.stopTracking();
 
     try {
@@ -413,7 +586,6 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     _positionSubscription?.cancel();
     _positionSubscription = null;
-    _lastPosition = null;
     _locationService.stopTracking();
 
     try {
@@ -458,10 +630,11 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       final response = await http
           .get(
-            // recent=true: los puntos más recientes, para que un espectador
-            // que se une tarde vea el tramo actual y no solo el inicio.
+            // full=true: todo el recorrido muestreado a ≤ 4000 puntos, para
+            // que en carreras largas se vea desde la salida hasta el tramo
+            // actual (antes solo los últimos 1000 puntos).
             Uri.parse(
-              '${ApiConfig.baseUrl}/tracking/$_roomCode/history?recent=true&limit=1000',
+              '${ApiConfig.baseUrl}/tracking/$_roomCode/history?full=true&limit=4000',
             ),
             headers: headers,
           )
@@ -475,7 +648,7 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
       _locations.clear();
       for (final loc in locations) {
         if (loc is Map && loc['latitude'] is num && loc['longitude'] is num) {
-          _locations.add({
+          _appendLocation({
             'latitude': loc['latitude'],
             'longitude': loc['longitude'],
             'distance': loc['distance'],
@@ -504,6 +677,9 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
           'pace': last['pace'],
           'distance': last['distance'],
         };
+        // Recalcular el progreso desde cero (sin ventana previa).
+        _routeProgress = null;
+        _onSpectatorPoint(last);
       }
       notifyListeners();
     } catch (e) {
@@ -534,6 +710,13 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (response.statusCode != 200) return;
       final data = json.decode(response.body);
       final session = data['session'];
+      if (session is Map) {
+        _sessionStartedAt = DateTime.tryParse(session['startedAt']?.toString() ?? '');
+        if (session['plannedRoute'] is Map) {
+          _applyPlannedRouteJson(session['plannedRoute']);
+          notifyListeners();
+        }
+      }
       if (session is Map && session['status'] != null) {
         if (session['status'] != 'active') {
           _trackingStopped = true;
@@ -661,12 +844,67 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
           if (data['distance'] is num) {
             _currentDistance = (data['distance'] as num).toDouble();
           }
-          _locations.add({
+          _appendLocation({
             'latitude': data['latitude'],
             'longitude': data['longitude'],
             'timestamp': data['timestamp'],
           });
-          if (_locations.length > 500) _locations.removeAt(0);
+          _onSpectatorPoint(data);
+          notifyListeners();
+        }
+        break;
+
+      case 'locationBatch':
+        // Puntos que el corredor guardó sin señal y envió al reconectar.
+        if (data is Map && data['points'] is List) {
+          final points = (data['points'] as List).whereType<Map>().toList();
+          for (final p in points) {
+            _appendLocation({
+              'latitude': p['latitude'],
+              'longitude': p['longitude'],
+              'timestamp': p['timestamp'],
+            });
+          }
+          if (points.isNotEmpty) {
+            final last = points.last;
+            _currentRunnerLocation = {
+              'latitude': last['latitude'],
+              'longitude': last['longitude'],
+              'speed': last['speed'],
+              'pace': last['pace'],
+              'accuracy': last['accuracy'],
+              'heading': last['heading'],
+              'distance': last['distance'],
+            };
+            if (last['distance'] is num) {
+              _currentDistance = (last['distance'] as num).toDouble();
+            }
+            _onSpectatorPoint(last);
+          }
+          notifyListeners();
+        }
+        break;
+
+      case 'routeUpdated':
+        if (_role == TrackingRole.spectator) {
+          _applyPlannedRouteJson(data is Map ? data['route'] : null);
+          notifyListeners();
+        }
+        break;
+
+      case 'trackingResumed':
+        // El servidor cerró la sala por desconexión larga y el corredor volvió.
+        if (_role == TrackingRole.spectator && _trackingStopped) {
+          _trackingStopped = false;
+          _finalStats = null;
+          _setNotice('El corredor recuperó la señal: la carrera continúa');
+          _loadRouteHistory();
+        }
+        break;
+
+      case 'pendingLocations':
+        if (data is int) {
+          _pendingLocations = data;
           notifyListeners();
         }
         break;
@@ -755,6 +993,18 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  void _onSpectatorPoint(Map<dynamic, dynamic> p) {
+    final ts = p['timestamp'];
+    if (ts is num) {
+      _lastPointAt = DateTime.fromMillisecondsSinceEpoch(ts.toInt());
+    } else if (ts is String) {
+      _lastPointAt = DateTime.tryParse(ts) ?? _lastPointAt;
+    }
+    final lat = p['latitude'];
+    final lng = p['longitude'];
+    if (lat is num && lng is num) _updateRouteProgress(lat.toDouble(), lng.toDouble());
+  }
+
   void _triggerTtsIfNeeded(Map<dynamic, dynamic> msg) {
     // El corredor escucha los mensajes de ánimo de los espectadores
     if (_role != TrackingRole.runner) return;
@@ -829,7 +1079,9 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
     _timer = null;
     _positionSubscription?.cancel();
     _positionSubscription = null;
-    _lastPosition = null;
+    _gpsWatchdog?.cancel();
+    _gpsWatchdog = null;
+    _gpsStale = false;
     _locationService.stopTracking();
     WakelockPlus.disable().catchError((Object e) {
       debugPrint('[Tracking] Error liberando wakelock: $e');
@@ -857,6 +1109,12 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
     _messages = [];
     _locations.clear();
     _currentDistance = 0;
+    _distanceAcc.reset();
+    _pendingLocations = 0;
+    _plannedRoute = null;
+    _routeProgress = null;
+    _sessionStartedAt = null;
+    _lastPointAt = null;
     _startTime = null;
     _elapsedTime = Duration.zero;
     _timer?.cancel();
@@ -871,6 +1129,7 @@ class TrackingProvider extends ChangeNotifier with WidgetsBindingObserver {
     _socketSubscription?.cancel();
     _positionSubscription?.cancel();
     _timer?.cancel();
+    _gpsWatchdog?.cancel();
     _wsService.disconnect();
     _locationService.stopTracking();
     WakelockPlus.disable().catchError((Object e) {

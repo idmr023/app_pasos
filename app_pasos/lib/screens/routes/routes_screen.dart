@@ -9,6 +9,7 @@ import '../../widgets/empty_state.dart';
 import '../../widgets/loading_states.dart';
 import '../../widgets/strava_connect_dialog.dart';
 import 'route_detail_screen.dart';
+import 'gpx_viewer_screen.dart';
 
 class RoutesScreen extends StatefulWidget {
   const RoutesScreen({super.key});
@@ -52,7 +53,15 @@ class _RoutesScreenState extends State<RoutesScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('Rutas y GPS', style: AppTheme.titleLarge.copyWith(letterSpacing: 1.5)),
+                        Expanded(child: Text('Rutas y GPS', style: AppTheme.titleLarge.copyWith(letterSpacing: 1.5))),
+                        IconButton(
+                          tooltip: 'Abrir archivo GPX',
+                          icon: const Icon(Icons.route, color: AppTheme.secondary),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const GpxViewerScreen()),
+                          ),
+                        ),
                         if (hasStrava)
                           ElevatedButton.icon(
                             onPressed: () async {

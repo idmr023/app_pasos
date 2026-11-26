@@ -2,6 +2,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
+/// Estado del acceso a ubicación antes de iniciar una carrera.
+enum LocationAccess { serviceDisabled, denied, deniedForever, whileInUse, always }
+
 /// Servicio singleton de geolocalización para el tracking en vivo.
 ///
 /// Emite un stream de posiciones GPS mientras el tracking está activo.
@@ -39,18 +42,37 @@ class LocationService {
         'Permisos de ubicación denegados permanentemente. Actívalos en Ajustes.',
       );
     }
+    if (permission == LocationPermission.denied) {
+      throw Exception('Permiso de ubicación denegado.');
+    }
 
-    if (permission == LocationPermission.whileInUse &&
-        defaultTargetPlatform == TargetPlatform.android) {
-      // El tracking de carrera no puede seguir activo con la pantalla apagada ni
-      // con el celular en el bolsillo si el sistema solo tiene permiso en primer
-      // plano. En Android 10+ hace falta "Permitir siempre". Lo presentamos
-      // como error explícito para obligar a activar esa configuración antes de
-      // empezar la sesión.
-      await Geolocator.openAppSettings();
-      throw Exception(
-        'Activa la ubicación en segundo plano ("Permitir siempre") para que el seguimiento continúe con la pantalla apagada y el teléfono en el bolsillo.',
-      );
+    // "Mientras se usa la app" basta: el stream corre en un foreground
+    // service de tipo location (ver AndroidSettings abajo) que se inicia con
+    // la app visible, y Android lo deja seguir con la pantalla apagada.
+    // "Permitir siempre" solo se recomienda desde la UI (checkAccess), ya no
+    // bloquea el arranque: antes lanzaba aquí y el tracking quedaba sin GPS.
+  }
+
+  /// Revisa (y si [request] es true, solicita) el acceso a ubicación antes de
+  /// iniciar una carrera, para que la UI muestre el diálogo adecuado.
+  Future<LocationAccess> checkAccess({bool request = true}) async {
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      return LocationAccess.serviceDisabled;
+    }
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied && request) {
+      permission = await Geolocator.requestPermission();
+    }
+    switch (permission) {
+      case LocationPermission.always:
+        return LocationAccess.always;
+      case LocationPermission.whileInUse:
+        return LocationAccess.whileInUse;
+      case LocationPermission.deniedForever:
+        return LocationAccess.deniedForever;
+      case LocationPermission.denied:
+      case LocationPermission.unableToDetermine:
+        return LocationAccess.denied;
     }
   }
 

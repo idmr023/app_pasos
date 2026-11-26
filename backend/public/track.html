@@ -53,6 +53,7 @@
   <div class="bar">
     <div class="stat">Sala: <b id="code"></b></div>
     <div class="stat">Distancia: <b id="dist">--</b> km</div>
+    <div class="stat" id="remainingStat" hidden>Faltan: <b id="remaining">--</b> km <span id="eta"></span></div>
     <div class="stat">Velocidad: <b id="speed">--</b> km/h</div>
     <div class="stat">Ritmo: <b id="pace">--</b></div>
   </div>
@@ -97,21 +98,110 @@
       query: { roomCode: code, isRunner: 'false', guest: 'true', guestName: guestName }
     });
 
+    // --- Ruta planificada (.gpx del corredor) y cuánto falta ---
+    let planned = null; // { points: [[lat,lng]], cum: [m], total: m }
+    let plannedLine = null, finishMarker = null, lastAlong = null, startedAt = null, lastDistKm = 0, lastTs = null;
+    function hav(a, b) {
+      const R = 6371000, r = Math.PI / 180;
+      const dLat = (b[0] - a[0]) * r, dLng = (b[1] - a[1]) * r;
+      const x = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLng / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+    }
+    function setPlanned(rt) {
+      if (plannedLine) { map.removeLayer(plannedLine); plannedLine = null; }
+      if (finishMarker) { map.removeLayer(finishMarker); finishMarker = null; }
+      planned = null; lastAlong = null;
+      document.getElementById('remainingStat').hidden = true;
+      if (!rt || !Array.isArray(rt.points) || rt.points.length < 2) return;
+      const pts = rt.points.map(p => [p[0], p[1]]);
+      const cum = [0];
+      for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + hav(pts[i - 1], pts[i]));
+      planned = { points: pts, cum, total: cum[cum.length - 1] };
+      plannedLine = L.polyline(pts, { color: '#ffffff', weight: 7, opacity: 0.55, dashArray: '8 8' }).addTo(map);
+      polyline.bringToFront();
+      finishMarker = L.marker(pts[pts.length - 1], { title: 'Meta' }).addTo(map).bindTooltip('🏁 Meta');
+      document.getElementById('remainingStat').hidden = false;
+      setMetric('remaining', (planned.total / 1000).toFixed(1));
+      if (!route.length) map.fitBounds(plannedLine.getBounds(), { padding: [20, 20] });
+    }
+    function updateRemaining(lat, lng) {
+      if (!planned) return;
+      const cosLat = Math.cos(lat * Math.PI / 180), k = 111320;
+      const X = p => (p[1] - lng) * k * cosLat, Y = p => (p[0] - lat) * k;
+      const searchBest = (from, to) => {
+        let best = null;
+        for (let i = from; i < to; i++) {
+          const a = planned.points[i], b = planned.points[i + 1];
+          const ax = X(a), ay = Y(a), dx = X(b) - ax, dy = Y(b) - ay;
+          const len2 = dx * dx + dy * dy;
+          let t = len2 ? -(ax * dx + ay * dy) / len2 : 0;
+          t = Math.max(0, Math.min(1, t));
+          const px = ax + t * dx, py = ay + t * dy, d = Math.hypot(px, py);
+          if (!best || d < best.d) best = { d, along: planned.cum[i] + t * (planned.cum[i + 1] - planned.cum[i]) };
+        }
+        return best;
+      };
+      const n = planned.points.length;
+      let best = null;
+      const hint = lastAlong != null ? lastAlong : (lastDistKm > 0.5 ? lastDistKm * 1000 - 300 : null);
+      if (hint != null) {
+        let from = 0; while (from < n - 2 && planned.cum[from + 1] < hint - 500) from++;
+        let to = from; while (to < n - 1 && planned.cum[to] <= hint + 3000) to++;
+        best = searchBest(from, Math.max(to, from + 1));
+        if (best && best.d > 200) best = null;
+      }
+      if (!best) best = searchBest(0, n - 1);
+      lastAlong = best.along;
+      const remainingKm = Math.max(0, planned.total - best.along) / 1000;
+      setMetric('remaining', remainingKm.toFixed(1));
+      let eta = '';
+      if (startedAt && lastTs && lastDistKm > 0.2) {
+        const secPerKm = (lastTs - startedAt) / 1000 / lastDistKm;
+        const mins = Math.round(secPerKm * remainingKm / 60);
+        eta = mins >= 60 ? `(~${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, '0')} min)` : `(~${mins} min)`;
+      }
+      document.getElementById('eta').textContent = eta + (best.d > 150 ? ' · fuera de ruta' : '');
+    }
+
+    function applyPoint(d, live) {
+      const lat = d.latitude, lng = d.longitude;
+      if (typeof lat !== 'number' || typeof lng !== 'number') return false;
+      route.push([lat, lng]);
+      if (typeof d.distance === 'number') lastDistKm = d.distance;
+      if (d.timestamp) lastTs = new Date(d.timestamp).getTime();
+      if (live) {
+        setMetric('dist', (d.distance || 0).toFixed(2));
+        setMetric('speed', ((d.speed || 0) * 3.6).toFixed(1));
+        setMetric('pace', d.pace ? d.pace.toFixed(2) + ' min/km' : '--');
+      }
+      return true;
+    }
+    function moveMarker() {
+      if (!route.length) return;
+      const last = route[route.length - 1];
+      polyline.setLatLngs(route);
+      if (!marker) { marker = L.marker(last).addTo(map); map.setView(last, 15); }
+      else marker.setLatLng(last);
+      updateRemaining(last[0], last[1]);
+    }
+
     socket.on('connect', () => console.log('connected'));
     socket.on('locationUpdate', (d) => {
-      const lat = d.latitude, lng = d.longitude;
-      if (typeof lat !== 'number' || typeof lng !== 'number') return;
-      route.push([lat, lng]);
-      polyline.setLatLngs(route);
-      if (!marker) {
-        marker = L.marker([lat, lng]).addTo(map);
-        map.setView([lat, lng], 15);
-      } else {
-        marker.setLatLng([lat, lng]);
-      }
-      setMetric('dist', (d.distance || 0).toFixed(2));
-      setMetric('speed', ((d.speed || 0) * 3.6).toFixed(1));
-      setMetric('pace', d.pace ? d.pace.toFixed(2) + ' min/km' : '--');
+      if (applyPoint(d, true)) moveMarker();
+    });
+    // Puntos que el corredor guardó sin señal y envió al reconectar.
+    socket.on('locationBatch', (d) => {
+      const pts = (d && Array.isArray(d.points)) ? d.points : [];
+      pts.forEach((p, i) => applyPoint(p, i === pts.length - 1));
+      moveMarker();
+    });
+    socket.on('routeUpdated', (d) => setPlanned(d && d.route));
+    socket.on('trackingResumed', () => {
+      activityEnded = false;
+      const b = document.getElementById('stoppedBanner');
+      b.style.display = 'none';
+      document.getElementById('inputrow').hidden = false;
+      document.getElementById('pubar').hidden = false;
     });
 
     function appendMessage(d) {
@@ -225,22 +315,16 @@
     });
 
     // Cargar historial via REST
-    fetch('/api/tracking/' + code + '/history?recent=true&limit=1000')
+    // Todo el recorrido (muestreado) para carreras largas.
+    fetch('/api/tracking/' + code + '/history?full=true&limit=4000')
       .then(r => r.json())
       .then(data => {
         if (data && Array.isArray(data.locations)) {
-          data.locations.forEach(l => {
-            if (typeof l.latitude === 'number' && typeof l.longitude === 'number') {
-              route.push([l.latitude, l.longitude]);
-            }
-          });
-          polyline.setLatLngs(route);
-          if (route.length) {
-            const last = route[route.length-1];
-            if (!marker) marker = L.marker(last).addTo(map);
-            else marker.setLatLng(last);
-            map.setView(last, 15);
-          }
+          route.length = 0;
+          data.locations.forEach(l => applyPoint(l, false));
+          const last = data.locations[data.locations.length - 1];
+          if (last && typeof last.distance === 'number') setMetric('dist', last.distance.toFixed(2));
+          moveMarker();
         }
       }).catch(() => {});
 
@@ -255,6 +339,11 @@
     fetch('/api/tracking/' + code)
       .then(r => r.json())
       .then(data => {
+        if (data?.session?.startedAt) startedAt = new Date(data.session.startedAt).getTime();
+        if (data?.session?.plannedRoute) {
+          setPlanned(data.session.plannedRoute);
+          if (route.length) moveMarker();
+        }
         if (data?.session?.status !== 'active') {
           activityEnded = true;
           document.getElementById('stoppedBanner').style.display = 'block';
